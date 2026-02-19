@@ -60,6 +60,11 @@ type diffLoadedMsg struct {
 	err     error
 }
 
+type checkoutDoneMsg struct {
+	repo model.RepoStatus
+	err  error
+}
+
 type tickMsg time.Time
 
 type App struct {
@@ -179,6 +184,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diffViewport.SetContent(colorizeDiff(m.content))
 		a.setSearch(a.diffSearch)
 		return a, nil
+
+	case checkoutDoneMsg:
+		a.loading = false
+		if m.err != nil {
+			a.errText = m.err.Error()
+			return a, nil
+		}
+		a.errText = ""
+		return a, tea.Batch(a.refreshAllCmd(), a.loadRemoteCmd(m.repo))
 
 	case tickMsg:
 		if a.screen == screenHome {
@@ -503,6 +517,9 @@ func (a *App) viewDetail() string {
 		refreshText = loadingStyle.Render("刷新中...")
 	}
 	lines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
+	if a.errText != "" {
+		lines = append(lines, errStyle.Render("错误: "+a.errText))
+	}
 	if a.remoteErr != "" {
 		lines = append(lines, errStyle.Render("远端: "+a.remoteErr))
 	}
@@ -798,9 +815,9 @@ func (a *App) checkoutCmd(repo model.RepoStatus, branch string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := a.git.CheckoutBranch(ctx, repo.Path, branch); err != nil {
-			return refreshDoneMsg{err: err}
+			return checkoutDoneMsg{err: err}
 		}
-		return a.refreshAllCmd()()
+		return checkoutDoneMsg{repo: repo}
 	}
 }
 
