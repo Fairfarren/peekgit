@@ -75,7 +75,14 @@ func scanDirectChildren(root string) ([]RepoDir, error) {
 		return nil, err
 	}
 
-	repos := make([]RepoDir, 0, len(entries))
+	repos := make([]RepoDir, 0, len(entries)+1) // +1 预留给根目录
+
+	// 首先检查根目录本身是否是 Git 仓库
+	if ok, err := IsGitRepo(root); err == nil && ok {
+		repos = append(repos, RepoDir{Name: filepath.Base(root), Path: root})
+	}
+
+	// 然后扫描子目录
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
