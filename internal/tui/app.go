@@ -51,6 +51,8 @@ type remoteLoadedMsg struct {
 	issues    []model.IssueItem
 	branches  []model.BranchInfo
 	remoteErr string
+	prOpen    *int
+	issueOpen *int
 }
 
 type diffLoadedMsg struct {
@@ -157,6 +159,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.issues = m.issues
 		a.branches = m.branches
 		a.remoteErr = m.remoteErr
+		a.updateRepoOpenCounts(m.repoPath, m.prOpen, m.issueOpen)
 		return a, nil
 
 	case diffLoadedMsg:
@@ -550,7 +553,21 @@ func (a *App) refreshAllCmd() tea.Cmd {
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
-				ch <- a.git.RefreshRepo(ctx, r.Name, r.Path)
+				status := a.git.RefreshRepo(ctx, r.Name, r.Path)
+				if a.gh.Authenticated() && status.Error != model.RepoErrNoRemote && status.Error != model.RepoErrNotARepo {
+					owner, rname, err := a.git.ParseOwnerRepoFromRemote(ctx, r.Path)
+					if err == nil {
+						prs, errPR := a.gh.ListPRs(ctx, owner, rname)
+						issues, errIssue := a.gh.ListIssues(ctx, owner, rname)
+						if errPR == nil && errIssue == nil {
+							prValue := len(prs)
+							issueValue := len(issues)
+							status.PROpen = &prValue
+							status.IssueOpen = &issueValue
+						}
+					}
+				}
+				ch <- status
 			}()
 		}
 		for i := 0; i < cap(sem); i++ {
@@ -579,12 +596,19 @@ func (a *App) loadRemoteCmd(repo model.RepoStatus) tea.Cmd {
 		prs, errPR := a.gh.ListPRs(ctx, owner, rname)
 		issues, errIssue := a.gh.ListIssues(ctx, owner, rname)
 		remoteErr := ""
+		var prOpen *int
+		var issueOpen *int
 		if errPR == ghprovider.ErrUnauthenticated || errIssue == ghprovider.ErrUnauthenticated {
 			remoteErr = "unauth"
 			prs = []model.PullRequestItem{}
 			issues = []model.IssueItem{}
 		} else if errPR != nil || errIssue != nil {
 			remoteErr = "fetch"
+		} else {
+			prValue := len(prs)
+			issueValue := len(issues)
+			prOpen = &prValue
+			issueOpen = &issueValue
 		}
 		return remoteLoadedMsg{
 			repoPath:  repo.Path,
@@ -592,7 +616,20 @@ func (a *App) loadRemoteCmd(repo model.RepoStatus) tea.Cmd {
 			issues:    issues,
 			branches:  branches,
 			remoteErr: remoteErr,
+			prOpen:    prOpen,
+			issueOpen: issueOpen,
 		}
+	}
+}
+
+func (a *App) updateRepoOpenCounts(repoPath string, prOpen *int, issueOpen *int) {
+	for i := range a.repos {
+		if a.repos[i].Path != repoPath {
+			continue
+		}
+		a.repos[i].PROpen = prOpen
+		a.repos[i].IssueOpen = issueOpen
+		return
 	}
 }
 
