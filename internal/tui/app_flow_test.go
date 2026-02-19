@@ -14,9 +14,9 @@ func newTestApp() *App {
 	a.width = 120
 	a.height = 40
 	a.repos = []model.RepoStatus{
-		{Name: "repo-a", Branch: "main", Sync: model.SyncSynced},
-		{Name: "repo-b", Branch: "dev", Sync: model.SyncAhead, Ahead: 2},
-		{Name: "repo-c", Branch: "feat", Sync: model.SyncBehind, Behind: 1},
+		{Name: "repo-a", Path: "/tmp/repo-a", Branch: "main", Sync: model.SyncSynced},
+		{Name: "repo-b", Path: "/tmp/repo-b", Branch: "dev", Sync: model.SyncAhead, Ahead: 2},
+		{Name: "repo-c", Path: "/tmp/repo-c", Branch: "feat", Sync: model.SyncBehind, Behind: 1},
 	}
 	a.recomputeGrid()
 	return a
@@ -182,5 +182,27 @@ func TestJumpMatchNoMatchSafe(t *testing.T) {
 	a.jumpMatch(1)
 	if a.matchIdx != -1 {
 		t.Fatalf("matchIdx=%d", a.matchIdx)
+	}
+}
+
+func TestRemoteLoadedMsgUpdatesRepoCounters(t *testing.T) {
+	a := newTestApp()
+	a.selectedIndex = 0
+
+	prCount := 2
+	issueCount := 3
+	_, _ = a.Update(remoteLoadedMsg{
+		repoPath:  "/tmp/repo-a",
+		prs:       []model.PullRequestItem{{Number: 1}, {Number: 2}},
+		issues:    []model.IssueItem{{Number: 10}, {Number: 11}, {Number: 12}},
+		prOpen:    &prCount,
+		issueOpen: &issueCount,
+	})
+
+	if a.repos[0].PROpen == nil || *a.repos[0].PROpen != 2 {
+		t.Fatalf("pr open not updated, got=%v", a.repos[0].PROpen)
+	}
+	if a.repos[0].IssueOpen == nil || *a.repos[0].IssueOpen != 3 {
+		t.Fatalf("issue open not updated, got=%v", a.repos[0].IssueOpen)
 	}
 }
