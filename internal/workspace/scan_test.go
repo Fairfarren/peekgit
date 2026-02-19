@@ -1,0 +1,93 @@
+package workspace
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestIsGitRepoDir(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	ok, err := IsGitRepo(repo)
+	if err != nil || !ok {
+		t.Fatalf("got (%v, %v)", ok, err)
+	}
+}
+
+func TestIsGitRepoGitFile(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	gdir := filepath.Join(root, "actual.git")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.MkdirAll(gdir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: ../actual.git\n"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	ok, err := IsGitRepo(repo)
+	if err != nil || !ok {
+		t.Fatalf("got (%v, %v)", ok, err)
+	}
+}
+
+func TestScanRepos(t *testing.T) {
+	root := t.TempDir()
+	repo1 := filepath.Join(root, "a")
+	repo2 := filepath.Join(root, "b")
+	nonRepo := filepath.Join(root, "c")
+
+	_ = os.MkdirAll(filepath.Join(repo1, ".git"), 0o755)
+	_ = os.MkdirAll(filepath.Join(repo2, ".git"), 0o755)
+	_ = os.MkdirAll(nonRepo, 0o755)
+
+	repos, err := ScanRepos(root)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("repo count = %d", len(repos))
+	}
+}
+
+func TestIsGitRepoInvalidGitFile(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git"), []byte("invalid"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	ok, err := IsGitRepo(repo)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ok {
+		t.Fatalf("expected false")
+	}
+}
+
+func TestIsGitRepoMissingGitDirFromGitFile(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: ../missing.git\n"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	ok, err := IsGitRepo(repo)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ok {
+		t.Fatalf("expected false")
+	}
+}

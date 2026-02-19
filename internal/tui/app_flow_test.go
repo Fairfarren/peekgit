@@ -1,0 +1,126 @@
+package tui
+
+import (
+	"testing"
+
+	"github.com/Fairfarren/peekgit/internal/config"
+	"github.com/Fairfarren/peekgit/internal/model"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func newTestApp() *App {
+	a := New(config.Config{Workspace: "/tmp", IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a.width = 120
+	a.height = 40
+	a.repos = []model.RepoStatus{
+		{Name: "repo-a", Branch: "main", Sync: model.SyncSynced},
+		{Name: "repo-b", Branch: "dev", Sync: model.SyncAhead, Ahead: 2},
+		{Name: "repo-c", Branch: "feat", Sync: model.SyncBehind, Behind: 1},
+	}
+	a.recomputeGrid()
+	return a
+}
+
+func TestUpdateWindowSize(t *testing.T) {
+	a := newTestApp()
+	_, _ = a.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	if a.width != 80 || a.height != 20 {
+		t.Fatalf("size not updated")
+	}
+}
+
+func TestUpdateHomeNavigation(t *testing.T) {
+	a := newTestApp()
+	_, _ = a.updateHome(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if a.selectedIndex == 0 {
+		t.Fatalf("expected moved")
+	}
+	_, _ = a.updateHome(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if a.selectedIndex != 0 {
+		t.Fatalf("expected back to zero")
+	}
+}
+
+func TestUpdateHomeEnterToDetail(t *testing.T) {
+	a := newTestApp()
+	_, cmd := a.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.screen != screenDetail {
+		t.Fatalf("expected detail screen")
+	}
+	if cmd == nil {
+		t.Fatalf("expected load command")
+	}
+}
+
+func TestUpdateFilterInput(t *testing.T) {
+	a := newTestApp()
+	a.filterMode = true
+	_, _ = a.updateFilterInput(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	_, _ = a.updateFilterInput(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if a.filterText != "re" {
+		t.Fatalf("filter=%s", a.filterText)
+	}
+	_, _ = a.updateFilterInput(tea.KeyMsg{Type: tea.KeyBackspace})
+	if a.filterText != "r" {
+		t.Fatalf("filter=%s", a.filterText)
+	}
+	_, _ = a.updateFilterInput(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.filterMode {
+		t.Fatalf("expected filter end")
+	}
+}
+
+func TestUpdateDetailTabSwitch(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDetail
+	a.detailTab = tabPR
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyTab})
+	if a.detailTab != tabIssue {
+		t.Fatalf("tab=%v", a.detailTab)
+	}
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	if a.detailTab != tabBranch {
+		t.Fatalf("tab=%v", a.detailTab)
+	}
+}
+
+func TestUpdateDetailBackHome(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDetail
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.screen != screenHome {
+		t.Fatalf("expected home")
+	}
+}
+
+func TestUpdateDiffSearchControl(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDiff
+	a.diffContent = "a\nmatch\nb"
+	a.diffViewport.SetContent(a.diffContent)
+	_, _ = a.updateDiff(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !a.searchMode {
+		t.Fatalf("expected search mode")
+	}
+	a.searchInput = "match"
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.searchMode {
+		t.Fatalf("search mode should close")
+	}
+}
+
+func TestViewsNotEmpty(t *testing.T) {
+	a := newTestApp()
+	if a.viewHome() == "" {
+		t.Fatalf("home empty")
+	}
+	a.screen = screenDetail
+	if a.viewDetail() == "" {
+		t.Fatalf("detail empty")
+	}
+	a.screen = screenDiff
+	a.diffViewport.SetContent("diff")
+	if a.viewDiff() == "" {
+		t.Fatalf("diff empty")
+	}
+}
