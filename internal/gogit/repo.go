@@ -3,6 +3,7 @@ package gogit
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -367,20 +368,15 @@ func (c *CLI) CheckoutBranch(ctx context.Context, repoPath string, branchName st
 }
 
 // Pull 拉取远程更新
+// 注意：由于 go-git 对 SSH 认证支持有限，这里使用命令行方式
+// 这样可以利用系统的 SSH agent 和密钥配置
 func (c *CLI) Pull(ctx context.Context, repoPath string) error {
-	repo, err := git.PlainOpen(repoPath)
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "pull", "--quiet")
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("pull failed: %s", strings.TrimSpace(string(output)))
 	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return err
-	}
-
-	return worktree.Pull(&git.PullOptions{
-		RemoteName: "origin",
-	})
+	return nil
 }
 
 // ParseOwnerRepoFromRemote 从远程 URL 解析 owner 和 repo
