@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Fairfarren/peekgit/internal/config"
-	"github.com/Fairfarren/peekgit/internal/gitcli"
+	"github.com/Fairfarren/peekgit/internal/gogit"
 	"github.com/Fairfarren/peekgit/internal/model"
 	ghprovider "github.com/Fairfarren/peekgit/internal/provider/github"
 	"github.com/Fairfarren/peekgit/internal/workspace"
@@ -81,7 +81,7 @@ type tickMsg time.Time
 
 type App struct {
 	cfg    config.Config
-	git    *gitcli.CLI
+	git    *gogit.CLI
 	gh     *ghprovider.Client
 	width  int
 	height int
@@ -120,7 +120,7 @@ type App struct {
 func New(cfg config.Config) *App {
 	return &App{
 		cfg:        cfg,
-		git:        gitcli.New(),
+		git:        gogit.New(),
 		gh:         ghprovider.New(context.Background(), cfg.NoGitHub),
 		screen:     screenHome,
 		detailTab:  tabPR,
