@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -63,6 +64,17 @@ type diffLoadedMsg struct {
 type checkoutDoneMsg struct {
 	repo model.RepoStatus
 	err  error
+}
+
+type pullDoneMsg struct {
+	repoPath string
+	err      error
+}
+
+type pullAllDoneMsg struct {
+	completed int
+	failed    int
+	lastErr   error
 }
 
 type tickMsg time.Time
@@ -194,6 +206,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.errText = ""
 		return a, tea.Batch(a.refreshAllCmd(), a.loadRemoteCmd(m.repo))
 
+	case pullDoneMsg:
+		a.loading = false
+		if m.err != nil {
+			a.errText = "pull 失败: " + m.err.Error()
+			return a, nil
+		}
+		a.errText = ""
+		return a, a.refreshAllCmd()
+
+	case pullAllDoneMsg:
+		a.loading = false
+		if m.failed > 0 && m.lastErr != nil {
+			a.errText = fmt.Sprintf("pull 完成: %d 成功, %d 失败 (%s)", m.completed, m.failed, m.lastErr.Error())
+		} else {
+			a.errText = ""
+		}
+		return a, a.refreshAllCmd()
+
 	case tickMsg:
 		if a.screen == screenHome {
 			return a, tea.Batch(a.refreshAllCmd(), tickCmd(a.cfg.IntervalSec))
@@ -297,6 +327,16 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.detailBRIdx = 0
 		a.remoteErr = ""
 		return a, a.loadRemoteCmd(visible[a.selectedIndex])
+	case "f":
+		if len(visible) > 0 {
+			a.loading = true
+			return a, a.pullCurrentCmd()
+		}
+	case "F":
+		if len(a.repos) > 0 {
+			a.loading = true
+			return a, a.pullAllCmd()
+		}
 	}
 	return a, nil
 }
@@ -406,7 +446,7 @@ func (a *App) viewHome() string {
 	if a.gh.Authenticated() {
 		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  q 退出")
+	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  f pull  F pull全部  q 退出")
 	if a.filterMode {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
@@ -808,6 +848,40 @@ func emptyDash(v string) string {
 		return "—"
 	}
 	return v
+}
+
+func (a *App) pullCurrentCmd() tea.Cmd {
+	return func() tea.Msg {
+		repo := a.currentRepo()
+		if repo.Path == "" {
+			return pullDoneMsg{err: errors.New("no repo selected")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := a.git.Pull(ctx, repo.Path)
+		return pullDoneMsg{repoPath: repo.Path, err: err}
+	}
+}
+
+func (a *App) pullAllCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		completed := 0
+		failed := 0
+		var lastErr error
+
+		for _, repo := range a.repos {
+			if err := a.git.Pull(ctx, repo.Path); err != nil {
+				failed++
+				lastErr = err
+			} else {
+				completed++
+			}
+		}
+		return pullAllDoneMsg{completed: completed, failed: failed, lastErr: lastErr}
+	}
 }
 
 func (a *App) checkoutCmd(repo model.RepoStatus, branch string) tea.Cmd {

@@ -224,3 +224,9 @@ func (c *CLI) CheckoutBranch(ctx context.Context, repoPath string, branchName st
 	_, err := c.exec.Run(ctx, repoPath, "checkout", branchName)
 	return err
 }
+
+// Pull executes git pull for the current branch in the specified repository.
+func (c *CLI) Pull(ctx context.Context, repoPath string) error {
+	_, err := c.exec.Run(ctx, repoPath, "pull", "--quiet")
+	return err
+}
