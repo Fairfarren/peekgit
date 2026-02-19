@@ -124,3 +124,33 @@ func TestIsGitRepoMissingGitDirFromGitFile(t *testing.T) {
 		t.Fatalf("expected false")
 	}
 }
+
+func TestScanReposRejectsAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(outside, "secret-repo", ".git"), 0o755)
+
+	repos, err := ScanRepos(root, []string{outside})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("should reject absolute path, got %d repos", len(repos))
+	}
+}
+
+func TestScanReposRejectsPathTraversal(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Dir(root)
+	outside := filepath.Join(parent, "outside-repo")
+	_ = os.MkdirAll(filepath.Join(outside, ".git"), 0o755)
+	defer os.RemoveAll(outside)
+
+	repos, err := ScanRepos(root, []string{"../outside-repo"})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("should reject path traversal, got %d repos", len(repos))
+	}
+}

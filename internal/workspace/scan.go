@@ -19,9 +19,31 @@ func ScanRepos(root string, configuredPaths []string) ([]RepoDir, error) {
 }
 
 func scanConfiguredPaths(root string, paths []string) ([]RepoDir, error) {
+	// 将 root 转为绝对路径，用于后续验证
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+
 	repos := make([]RepoDir, 0, len(paths))
 	for _, rel := range paths {
-		absPath := filepath.Join(root, rel)
+		// 安全检查：拒绝绝对路径
+		if filepath.IsAbs(rel) {
+			continue
+		}
+
+		absPath := filepath.Join(absRoot, rel)
+
+		// 安全检查：确保最终路径在 workspace 根目录内
+		// 通过计算相对路径来验证，如果相对路径以 .. 开头则说明在 workspace 之外
+		relToRoot, err := filepath.Rel(absRoot, absPath)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(relToRoot, "..") || filepath.IsAbs(relToRoot) {
+			continue
+		}
+
 		ok, err := IsGitRepo(absPath)
 		if err != nil || !ok {
 			continue
