@@ -289,7 +289,7 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.selectedIndex = moveIndex(a.selectedIndex, len(visible), a.columns, "left")
 	case "right", "l":
 		a.selectedIndex = moveIndex(a.selectedIndex, len(visible), a.columns, "right")
-	case "enter":
+	case " ", "enter":
 		a.screen = screenDetail
 		a.detailTab = tabPR
 		a.detailPRIdx = 0
@@ -304,7 +304,7 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	current := a.currentRepo()
 	switch msg.String() {
-	case "esc", "backspace":
+	case "q", "backspace":
 		a.screen = screenHome
 		return a, nil
 	case "r":
@@ -406,7 +406,7 @@ func (a *App) viewHome() string {
 	if a.gh.Authenticated() {
 		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := helpStyle.Render("↑↓←→/h j k l 选择  Enter 进入  / 过滤  r 刷新  q 退出")
+	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  q 退出")
 	if a.filterMode {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
@@ -501,7 +501,7 @@ func (a *App) viewDetail() string {
 	header := titleStyle.Render(repo.Name) + " " +
 		labelDimStyle.Render("(branch: ") + repo.Branch +
 		labelDimStyle.Render("  status: ") + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) +
-		labelDimStyle.Render(")") + "  " + helpStyle.Render("[Esc] back")
+		labelDimStyle.Render(")") + "  " + helpStyle.Render("[q] back")
 
 	tabLabels := []string{"PRs", "Issues", "Branches"}
 	tabStrs := make([]string, len(tabLabels))
