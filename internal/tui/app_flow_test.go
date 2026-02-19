@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Fairfarren/peekgit/internal/config"
@@ -122,6 +123,27 @@ func TestViewsNotEmpty(t *testing.T) {
 	a.diffViewport.SetContent("diff")
 	if a.viewDiff() == "" {
 		t.Fatalf("diff empty")
+	}
+}
+
+func TestViewHomeMultiColumnCardsStayInSameRow(t *testing.T) {
+	a := newTestApp()
+	a.width = 120
+	a.recomputeGrid()
+
+	view := a.viewHome()
+	lines := strings.Split(view, "\n")
+
+	hasSameLine := false
+	for _, line := range lines {
+		if strings.Contains(line, "repo-a") && strings.Contains(line, "repo-b") {
+			hasSameLine = true
+			break
+		}
+	}
+
+	if !hasSameLine {
+		t.Fatalf("expected repo-a and repo-b to render in the same visual row, view:\n%s", view)
 	}
 }
 
