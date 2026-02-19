@@ -172,3 +172,28 @@ func TestClassifySync(t *testing.T) {
 		t.Fatalf("diverged failed")
 	}
 }
+
+func TestParseOwnerRepoFromRemote(t *testing.T) {
+	fx := fakeExec{out: map[string]string{
+		key("remote", "get-url", "origin"): "https://github.com/abc/def.git",
+	}}
+	cli := NewWithExecutor(fx)
+	o, r, err := cli.ParseOwnerRepoFromRemote(context.Background(), "/tmp/x")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if o != "abc" || r != "def" {
+		t.Fatalf("owner/repo=%s/%s", o, r)
+	}
+}
+
+func TestListBranchesError(t *testing.T) {
+	fx := fakeExec{err: map[string]error{
+		key("for-each-ref", "--format=%(refname:short)|%(upstream:short)|%(HEAD)", "refs/heads"): errors.New("boom"),
+	}}
+	cli := NewWithExecutor(fx)
+	_, err := cli.ListBranches(context.Background(), "/tmp/x", false)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
