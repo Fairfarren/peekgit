@@ -555,7 +555,11 @@ func (a *App) viewDiff() string {
 
 func (a *App) refreshAllCmd() tea.Cmd {
 	return func() tea.Msg {
-		repos, err := workspace.ScanRepos(a.cfg.Workspace)
+		wsCfg, cfgErr := workspace.LoadConfig(a.cfg.Workspace)
+		if cfgErr != nil {
+			return refreshDoneMsg{err: cfgErr}
+		}
+		repos, err := workspace.ScanRepos(a.cfg.Workspace, wsCfg.Repos)
 		if err != nil {
 			return refreshDoneMsg{err: err}
 		}

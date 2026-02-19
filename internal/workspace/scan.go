@@ -11,7 +11,27 @@ type RepoDir struct {
 	Path string
 }
 
-func ScanRepos(root string) ([]RepoDir, error) {
+func ScanRepos(root string, configuredPaths []string) ([]RepoDir, error) {
+	if len(configuredPaths) > 0 {
+		return scanConfiguredPaths(root, configuredPaths)
+	}
+	return scanDirectChildren(root)
+}
+
+func scanConfiguredPaths(root string, paths []string) ([]RepoDir, error) {
+	repos := make([]RepoDir, 0, len(paths))
+	for _, rel := range paths {
+		absPath := filepath.Join(root, rel)
+		ok, err := IsGitRepo(absPath)
+		if err != nil || !ok {
+			continue
+		}
+		repos = append(repos, RepoDir{Name: filepath.Base(rel), Path: absPath})
+	}
+	return repos, nil
+}
+
+func scanDirectChildren(root string) ([]RepoDir, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err

@@ -47,12 +47,45 @@ func TestScanRepos(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(repo2, ".git"), 0o755)
 	_ = os.MkdirAll(nonRepo, 0o755)
 
-	repos, err := ScanRepos(root)
+	repos, err := ScanRepos(root, nil)
 	if err != nil {
 		t.Fatalf("scan failed: %v", err)
 	}
 	if len(repos) != 2 {
 		t.Fatalf("repo count = %d", len(repos))
+	}
+}
+
+func TestScanReposWithConfiguredPaths(t *testing.T) {
+	root := t.TempDir()
+	deep := filepath.Join(root, "apps", "my-repo")
+	_ = os.MkdirAll(filepath.Join(deep, ".git"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "apps", "not-repo"), 0o755)
+
+	repos, err := ScanRepos(root, []string{"apps/my-repo", "apps/not-repo"})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("repo count = %d, want 1", len(repos))
+	}
+	if repos[0].Name != "my-repo" {
+		t.Fatalf("name = %s, want my-repo", repos[0].Name)
+	}
+	if repos[0].Path != deep {
+		t.Fatalf("path = %s, want %s", repos[0].Path, deep)
+	}
+}
+
+func TestScanReposConfiguredPathsSkipsMissing(t *testing.T) {
+	root := t.TempDir()
+
+	repos, err := ScanRepos(root, []string{"does/not/exist"})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("repo count = %d, want 0", len(repos))
 	}
 }
 
