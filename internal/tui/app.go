@@ -400,7 +400,7 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "esc" {
+	if msg.String() == "q" {
 		a.screen = screenDetail
 		return a, nil
 	}
@@ -621,7 +621,7 @@ func (a *App) viewDiff() string {
 	if a.diffLoading {
 		return loadingStyle.Render("加载 diff 中...")
 	}
-	header := diffHeaderStyle.Render("Diff") + "  " + helpStyle.Render("[Esc] back  / search  n/p next/prev")
+	header := diffHeaderStyle.Render("Diff") + "  " + helpStyle.Render("[q] back  / search  n/p next/prev")
 	if a.searchMode {
 		header += "\n" + searchInfoStyle.Render("搜索: ") + a.searchInput
 	} else if a.diffSearch != "" {
