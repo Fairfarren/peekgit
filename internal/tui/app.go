@@ -389,6 +389,7 @@ func (a *App) viewHome() string {
 	repos := a.filteredRepos()
 	if len(repos) == 0 {
 		lines = append(lines, "没有仓库（可调整过滤条件）")
+		lines = append(lines, help)
 		return strings.Join(lines, "\n")
 	}
 
