@@ -400,7 +400,18 @@ func (a *App) viewHome() string {
 			selected := (j == a.selectedIndex)
 			cards = append(cards, a.renderCard(repos[j], selected))
 		}
-		rows = append(rows, strings.Join(cards, strings.Repeat(" ", cardGap)))
+		if len(cards) == 1 {
+			rows = append(rows, cards[0])
+			continue
+		}
+		segments := make([]string, 0, len(cards)*2-1)
+		for idx, card := range cards {
+			if idx > 0 {
+				segments = append(segments, strings.Repeat(" ", cardGap))
+			}
+			segments = append(segments, card)
+		}
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
 
 	lines = append(lines, rows...)
@@ -409,13 +420,18 @@ func (a *App) viewHome() string {
 }
 
 func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
-	borderColor := lipgloss.Color("240")
+	borderColor := lipgloss.AdaptiveColor{Light: "#8A8A8A", Dark: "#5F5F5F"}
+	cardBg := lipgloss.AdaptiveColor{Light: "#F6F4EE", Dark: "#232327"}
+	cardFg := lipgloss.AdaptiveColor{Light: "#2C3743", Dark: "#E5E7EB"}
 	if selected {
-		borderColor = lipgloss.Color("63")
+		borderColor = lipgloss.AdaptiveColor{Light: "#2B6FE8", Dark: "#6EA8FF"}
+		cardBg = lipgloss.AdaptiveColor{Light: "#EEF4FF", Dark: "#1D2636"}
 	}
 	s := lipgloss.NewStyle().
 		Width(a.cardWidth).
 		Padding(0, 1).
+		Foreground(cardFg).
+		Background(cardBg).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor)
 
