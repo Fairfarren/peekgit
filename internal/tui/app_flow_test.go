@@ -124,3 +124,41 @@ func TestViewsNotEmpty(t *testing.T) {
 		t.Fatalf("diff empty")
 	}
 }
+
+func TestUpdateDetailPRAndIssueCursorMove(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDetail
+	a.prList = []model.PullRequestItem{{Number: 1}, {Number: 2}}
+	a.issues = []model.IssueItem{{Number: 1}, {Number: 2}}
+
+	a.detailTab = tabPR
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if a.detailPRIdx != 1 {
+		t.Fatalf("pr idx=%d", a.detailPRIdx)
+	}
+
+	a.detailTab = tabIssue
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if a.detailISIdx != 1 {
+		t.Fatalf("issue idx=%d", a.detailISIdx)
+	}
+}
+
+func TestUpdateDiffEscBackToDetail(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDiff
+	_, _ = a.updateDiff(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.screen != screenDetail {
+		t.Fatalf("expected detail")
+	}
+}
+
+func TestJumpMatchNoMatchSafe(t *testing.T) {
+	a := newTestApp()
+	a.matches = nil
+	a.matchIdx = -1
+	a.jumpMatch(1)
+	if a.matchIdx != -1 {
+		t.Fatalf("matchIdx=%d", a.matchIdx)
+	}
+}

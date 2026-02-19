@@ -137,3 +137,39 @@ func TestResolveTokenEmptyWhenNoEnvAndGhFail(t *testing.T) {
 		t.Fatalf("token=%s", tok)
 	}
 }
+
+func TestListIssuesUsesCache(t *testing.T) {
+	c := &Client{
+		client:     gh.NewClient(nil),
+		auth:       true,
+		issueCache: cache.NewTTLCache[[]model.IssueItem](time.Minute),
+	}
+	now := time.Now()
+	c.issueCache.Set("o/r", []model.IssueItem{{Number: 9, Title: "cached"}}, now)
+
+	issues, err := c.ListIssues(context.Background(), "o", "r")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(issues) != 1 || issues[0].Number != 9 {
+		t.Fatalf("unexpected issues=%+v", issues)
+	}
+}
+
+func TestDiffUsesCache(t *testing.T) {
+	c := &Client{
+		client:    gh.NewClient(nil),
+		auth:      true,
+		diffCache: cache.NewTTLCache[string](time.Minute),
+	}
+	now := time.Now()
+	c.diffCache.Set("o/r/1", "cached-diff", now)
+
+	diff, err := c.PullRequestDiff(context.Background(), "o", "r", 1)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if diff != "cached-diff" {
+		t.Fatalf("diff=%s", diff)
+	}
+}
