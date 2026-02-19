@@ -207,16 +207,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(a.refreshAllCmd(), a.loadRemoteCmd(m.repo))
 
 	case pullDoneMsg:
-		a.loading = false
 		if m.err != nil {
 			a.errText = "pull 失败: " + m.err.Error()
-			return a, nil
+		} else {
+			a.errText = ""
 		}
-		a.errText = ""
 		return a, a.refreshAllCmd()
 
 	case pullAllDoneMsg:
-		a.loading = false
 		if m.failed > 0 && m.lastErr != nil {
 			a.errText = fmt.Sprintf("pull 完成: %d 成功, %d 失败 (%s)", m.completed, m.failed, m.lastErr.Error())
 		} else {
