@@ -487,10 +487,9 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 		errMark = errStyle.Render(" !" + string(repo.Error))
 	}
 
-	line1 := nameStr + "  " + syncStr + dirtyStr
-	line2 := labelDimStyle.Render("branch: ") + repo.Branch
-	line3 := renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) + "  " +
-		prLabelStyle.Render("PR ") + pr + "  " +
+	line1 := nameStr + dirtyStr
+	line2 := labelDimStyle.Render("branch: ") + repo.Branch + "  " + syncStr
+	line3 := prLabelStyle.Render("PR ") + pr + "  " +
 		issueLabelStyle.Render("Issues ") + issue + errMark
 
 	return s.Render(line1 + "\n" + line2 + "\n" + line3)
