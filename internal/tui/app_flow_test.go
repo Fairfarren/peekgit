@@ -44,7 +44,7 @@ func TestUpdateHomeNavigation(t *testing.T) {
 
 func TestUpdateHomeEnterToDetail(t *testing.T) {
 	a := newTestApp()
-	_, cmd := a.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := a.updateHome(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 	if a.screen != screenDetail {
 		t.Fatalf("expected detail screen")
 	}
@@ -88,7 +88,7 @@ func TestUpdateDetailTabSwitch(t *testing.T) {
 func TestUpdateDetailBackHome(t *testing.T) {
 	a := newTestApp()
 	a.screen = screenDetail
-	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if a.screen != screenHome {
 		t.Fatalf("expected home")
 	}
