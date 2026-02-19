@@ -18,6 +18,22 @@ func ScanRepos(root string, configuredPaths []string) ([]RepoDir, error) {
 	return scanDirectChildren(root)
 }
 
+func isPathTraversal(rel string) bool {
+	if rel == ".." {
+		return true
+	}
+	if strings.HasPrefix(rel, "../") {
+		return true
+	}
+	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return true
+	}
+	if filepath.IsAbs(rel) {
+		return true
+	}
+	return false
+}
+
 func scanConfiguredPaths(root string, paths []string) ([]RepoDir, error) {
 	// 将 root 转为绝对路径，用于后续验证
 	absRoot, err := filepath.Abs(root)
@@ -40,7 +56,7 @@ func scanConfiguredPaths(root string, paths []string) ([]RepoDir, error) {
 		if err != nil {
 			continue
 		}
-		if strings.HasPrefix(relToRoot, "..") || filepath.IsAbs(relToRoot) {
+		if isPathTraversal(relToRoot) {
 			continue
 		}
 
