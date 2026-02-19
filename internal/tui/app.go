@@ -170,7 +170,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.errText = ""
 		a.diffContent = m.content
-		a.diffViewport.SetContent(m.content)
+		a.diffViewport.SetContent(colorizeDiff(m.content))
 		a.setSearch(a.diffSearch)
 		return a, nil
 
@@ -368,22 +368,22 @@ func (a *App) View() string {
 }
 
 func (a *App) viewHome() string {
-	header := lipgloss.NewStyle().Bold(true).Render("Repo Monitor") + "  (ws: " + a.cfg.Workspace + ")"
-	tokenState := "token: unauth"
+	header := titleStyle.Render("Repo Monitor") + "  " + wsPathStyle.Render("(ws: "+a.cfg.Workspace+")")
+	tokenState := tokenBadStyle.Render("token: unauth")
 	if a.gh.Authenticated() {
-		tokenState = "token: github ✓"
+		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := "↑↓←→/h j k l 选择  Enter 进入  / 过滤  r 刷新  q 退出"
+	help := helpStyle.Render("↑↓←→/h j k l 选择  Enter 进入  / 过滤  r 刷新  q 退出")
 	if a.filterMode {
-		help = "过滤中: " + a.filterText + "  (Enter/ESC 结束)"
+		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
 
 	lines := []string{header, tokenState, help}
 	if a.errText != "" {
-		lines = append(lines, "错误: "+a.errText)
+		lines = append(lines, errStyle.Render("错误: "+a.errText))
 	}
 	if a.loading {
-		lines = append(lines, "刷新中...")
+		lines = append(lines, loadingStyle.Render("刷新中..."))
 	}
 
 	repos := a.filteredRepos()
@@ -418,25 +418,33 @@ func (a *App) viewHome() string {
 	}
 
 	lines = append(lines, rows...)
-	lines = append(lines, "Legend: ✓ synced  ↑ ahead(push)  ↓ behind(pull)  ✎ dirty  ! error")
+	legend := helpStyle.Render("Legend: ") +
+		syncSyncedStyle.Render("✓") + helpStyle.Render(" synced  ") +
+		syncAheadStyle.Render("↑") + helpStyle.Render(" ahead  ") +
+		syncBehindStyle.Render("↓") + helpStyle.Render(" behind  ") +
+		dirtyStyle.Render("✎") + helpStyle.Render(" dirty  ") +
+		errStyle.Render("!") + helpStyle.Render(" error")
+	lines = append(lines, legend)
 	return strings.Join(lines, "\n")
 }
 
 func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
-	borderColor := lipgloss.AdaptiveColor{Light: "#8A8A8A", Dark: "#5F5F5F"}
-	cardBg := lipgloss.AdaptiveColor{Light: "#F6F4EE", Dark: "#232327"}
-	cardFg := lipgloss.AdaptiveColor{Light: "#2C3743", Dark: "#E5E7EB"}
+	borderColor := lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
 	if selected {
 		borderColor = lipgloss.AdaptiveColor{Light: "#2B6FE8", Dark: "#6EA8FF"}
-		cardBg = lipgloss.AdaptiveColor{Light: "#EEF4FF", Dark: "#1D2636"}
 	}
 	s := lipgloss.NewStyle().
 		Width(a.cardWidth).
 		Padding(0, 1).
-		Foreground(cardFg).
-		Background(cardBg).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor)
+
+	nameStr := cardNameStyle.Render(repo.Name)
+	syncStr := renderSyncColored(repo.Sync, repo.Ahead, repo.Behind)
+	dirtyStr := ""
+	if repo.Dirty {
+		dirtyStr = dirtyStyle.Render(" ✎")
+	}
 
 	pr := "-"
 	if repo.PROpen != nil {
@@ -448,64 +456,69 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 	}
 	errMark := ""
 	if repo.Error != "" {
-		errMark = " !" + string(repo.Error)
+		errMark = errStyle.Render(" !" + string(repo.Error))
 	}
-	dirty := ""
-	if repo.Dirty {
-		dirty = " ✎"
-	}
-	content := fmt.Sprintf("%s  %s%s\nbranch: %s\nstatus: %s  PR %s  Issues %s%s",
-		repo.Name,
-		model.SyncSymbol(repo.Sync, repo.Ahead, repo.Behind),
-		dirty,
-		repo.Branch,
-		model.SyncSymbol(repo.Sync, repo.Ahead, repo.Behind),
-		pr,
-		issue,
-		errMark,
-	)
-	return s.Render(content)
+
+	line1 := nameStr + "  " + syncStr + dirtyStr
+	line2 := labelDimStyle.Render("branch: ") + repo.Branch
+	line3 := renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) + "  " +
+		prLabelStyle.Render("PR ") + pr + "  " +
+		issueLabelStyle.Render("Issues ") + issue + errMark
+
+	return s.Render(line1 + "\n" + line2 + "\n" + line3)
 }
 
 func (a *App) viewDetail() string {
 	repo := a.currentRepo()
-	header := fmt.Sprintf("%s (branch: %s  status: %s)   [Esc] back", repo.Name, repo.Branch, model.SyncSymbol(repo.Sync, repo.Ahead, repo.Behind))
-	tabs := []string{"PRs", "Issues", "Branches"}
-	for i := range tabs {
+	header := titleStyle.Render(repo.Name) + " " +
+		labelDimStyle.Render("(branch: ") + repo.Branch +
+		labelDimStyle.Render("  status: ") + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) +
+		labelDimStyle.Render(")") + "  " + helpStyle.Render("[Esc] back")
+
+	tabLabels := []string{"PRs", "Issues", "Branches"}
+	tabStrs := make([]string, len(tabLabels))
+	for i, label := range tabLabels {
 		if tab(i) == a.detailTab {
-			tabs[i] = "[" + tabs[i] + "]"
+			tabStrs[i] = tabActiveStyle.Render("[" + label + "]")
+		} else {
+			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
 		}
 	}
-	lines := []string{header, "Tabs: " + strings.Join(tabs, "  ") + "   [r] refresh"}
+	lines := []string{header, strings.Join(tabStrs, "  ") + "   " + helpStyle.Render("[r] refresh")}
 	if a.remoteErr != "" {
-		lines = append(lines, "远端: "+a.remoteErr)
+		lines = append(lines, errStyle.Render("远端: "+a.remoteErr))
 	}
 
 	switch a.detailTab {
 	case tabPR:
-		lines = append(lines, "↑↓: select  d: diff  o: open")
+		lines = append(lines, helpStyle.Render("↑↓: select  d: diff  o: open"))
 		if len(a.prList) == 0 {
 			lines = append(lines, "暂无 PR")
 		} else {
 			for i, pr := range a.prList {
-				mark := " "
+				numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
+				authStr := authorStyle.Render(pr.Author)
+				dateStr := dateStyle.Render("updated " + pr.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailPRIdx {
-					mark = ">"
+					lines = append(lines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+				} else {
+					lines = append(lines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
 				}
-				lines = append(lines, fmt.Sprintf("%s #%d %s  %s  updated %s", mark, pr.Number, pr.Title, pr.Author, pr.UpdatedAt.Format("2006-01-02")))
 			}
 		}
 	case tabIssue:
-		lines = append(lines, "↑↓: select  o: open")
+		lines = append(lines, helpStyle.Render("↑↓: select  o: open"))
 		if len(a.issues) == 0 {
 			lines = append(lines, "暂无 Issues")
 		} else {
 			for i, is := range a.issues {
-				mark := " "
+				numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
+				dateStr := dateStyle.Render("updated " + is.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailISIdx {
-					mark = ">"
+					lines = append(lines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
+				} else {
+					lines = append(lines, "  "+numStr+" "+is.Title+"  "+dateStr)
 				}
-				lines = append(lines, fmt.Sprintf("%s #%d %s  updated %s", mark, is.Number, is.Title, is.UpdatedAt.Format("2006-01-02")))
 			}
 		}
 	case tabBranch:
@@ -513,11 +526,14 @@ func (a *App) viewDetail() string {
 			lines = append(lines, "暂无分支")
 		} else {
 			for _, b := range a.branches {
-				cur := " "
+				var nameStr string
 				if b.Current {
-					cur = "*"
+					nameStr = currentBranchStyle.Render("* " + b.Name)
+				} else {
+					nameStr = "  " + b.Name
 				}
-				lines = append(lines, fmt.Sprintf("%s %s  upstream:%s  %s", cur, b.Name, emptyDash(b.Upstream), b.SyncSymbol))
+				upstreamStr := labelDimStyle.Render("upstream:") + emptyDash(b.Upstream)
+				lines = append(lines, nameStr+"  "+upstreamStr+"  "+b.SyncSymbol)
 			}
 		}
 	}
@@ -526,13 +542,13 @@ func (a *App) viewDetail() string {
 
 func (a *App) viewDiff() string {
 	if a.diffLoading {
-		return "加载 diff 中..."
+		return loadingStyle.Render("加载 diff 中...")
 	}
-	header := "Diff  [Esc] back  / search  n/p next/prev"
+	header := diffHeaderStyle.Render("Diff") + "  " + helpStyle.Render("[Esc] back  / search  n/p next/prev")
 	if a.searchMode {
-		header += "\n搜索: " + a.searchInput
+		header += "\n" + searchInfoStyle.Render("搜索: ") + a.searchInput
 	} else if a.diffSearch != "" {
-		header += fmt.Sprintf("\n搜索词: %s  命中: %d", a.diffSearch, len(a.matches))
+		header += "\n" + searchInfoStyle.Render(fmt.Sprintf("搜索词: %s  命中: %d", a.diffSearch, len(a.matches)))
 	}
 	return header + "\n" + a.diffViewport.View()
 }
