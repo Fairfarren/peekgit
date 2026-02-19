@@ -378,7 +378,7 @@ func (a *App) viewHome() string {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
 
-	lines := []string{header, tokenState, help}
+	lines := []string{header, tokenState}
 	if a.errText != "" {
 		lines = append(lines, errStyle.Render("错误: "+a.errText))
 	}
@@ -418,13 +418,7 @@ func (a *App) viewHome() string {
 	}
 
 	lines = append(lines, rows...)
-	legend := helpStyle.Render("Legend: ") +
-		syncSyncedStyle.Render("✓") + helpStyle.Render(" synced  ") +
-		syncAheadStyle.Render("↑") + helpStyle.Render(" ahead  ") +
-		syncBehindStyle.Render("↓") + helpStyle.Render(" behind  ") +
-		dirtyStyle.Render("✎") + helpStyle.Render(" dirty  ") +
-		errStyle.Render("!") + helpStyle.Render(" error")
-	lines = append(lines, legend)
+	lines = append(lines, help)
 	return strings.Join(lines, "\n")
 }
 
