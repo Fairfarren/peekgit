@@ -201,7 +201,8 @@ func (c *CLI) ListBranches(ctx context.Context, repoPath string, dirty bool) ([]
 		if len(parts) != 3 {
 			continue
 		}
-		b := model.BranchInfo{Name: parts[0], Upstream: parts[1], Current: strings.TrimSpace(parts[2]) == "*", Dirty: dirty}
+		current := strings.TrimSpace(parts[2]) == "*"
+		b := model.BranchInfo{Name: parts[0], Upstream: parts[1], Current: current, Dirty: dirty}
 		if b.Upstream != "" {
 			ahead, behind, err := c.aheadBehind(ctx, repoPath, b.Upstream)
 			if err == nil {
@@ -217,4 +218,9 @@ func (c *CLI) ListBranches(ctx context.Context, repoPath string, dirty bool) ([]
 		branches = append(branches, b)
 	}
 	return branches, nil
+}
+
+func (c *CLI) CheckoutBranch(ctx context.Context, repoPath string, branchName string) error {
+	_, err := c.exec.Run(ctx, repoPath, "checkout", branchName)
+	return err
 }

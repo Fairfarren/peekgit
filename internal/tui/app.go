@@ -60,6 +60,11 @@ type diffLoadedMsg struct {
 	err     error
 }
 
+type checkoutDoneMsg struct {
+	repo model.RepoStatus
+	err  error
+}
+
 type tickMsg time.Time
 
 type App struct {
@@ -81,6 +86,7 @@ type App struct {
 	detailTab   tab
 	detailPRIdx int
 	detailISIdx int
+	detailBRIdx int
 	prList      []model.PullRequestItem
 	issues      []model.IssueItem
 	branches    []model.BranchInfo
@@ -158,6 +164,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.prList = m.prs
 		a.issues = m.issues
 		a.branches = m.branches
+		if len(a.branches) == 0 {
+			a.detailBRIdx = 0
+		} else if a.detailBRIdx >= len(a.branches) {
+			a.detailBRIdx = len(a.branches) - 1
+		}
 		a.remoteErr = m.remoteErr
 		a.updateRepoOpenCounts(m.repoPath, m.prOpen, m.issueOpen)
 		return a, nil
@@ -173,6 +184,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diffViewport.SetContent(colorizeDiff(m.content))
 		a.setSearch(a.diffSearch)
 		return a, nil
+
+	case checkoutDoneMsg:
+		a.loading = false
+		if m.err != nil {
+			a.errText = m.err.Error()
+			return a, nil
+		}
+		a.errText = ""
+		return a, tea.Batch(a.refreshAllCmd(), a.loadRemoteCmd(m.repo))
 
 	case tickMsg:
 		if a.screen == screenHome {
@@ -274,6 +294,7 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.detailTab = tabPR
 		a.detailPRIdx = 0
 		a.detailISIdx = 0
+		a.detailBRIdx = 0
 		a.remoteErr = ""
 		return a, a.loadRemoteCmd(visible[a.selectedIndex])
 	}
@@ -317,12 +338,24 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.detailTab == tabIssue && a.detailISIdx > 0 {
 			a.detailISIdx--
 		}
+		if a.detailTab == tabBranch && a.detailBRIdx > 0 {
+			a.detailBRIdx--
+		}
 	case "down", "j":
 		if a.detailTab == tabPR && a.detailPRIdx < len(a.prList)-1 {
 			a.detailPRIdx++
 		}
 		if a.detailTab == tabIssue && a.detailISIdx < len(a.issues)-1 {
 			a.detailISIdx++
+		}
+		if a.detailTab == tabBranch && a.detailBRIdx < len(a.branches)-1 {
+			a.detailBRIdx++
+		}
+	case " ":
+		if a.detailTab == tabBranch && len(a.branches) > 0 {
+			branch := a.branches[a.detailBRIdx]
+			a.loading = true
+			return a, a.checkoutCmd(current, branch.Name)
 		}
 	}
 	return a, nil
@@ -479,7 +512,14 @@ func (a *App) viewDetail() string {
 			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
 		}
 	}
-	lines := []string{header, strings.Join(tabStrs, "  ") + "   " + helpStyle.Render("[r] refresh")}
+	refreshText := helpStyle.Render("[r] refresh")
+	if a.loading {
+		refreshText = loadingStyle.Render("刷新中...")
+	}
+	lines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
+	if a.errText != "" {
+		lines = append(lines, errStyle.Render("错误: "+a.errText))
+	}
 	if a.remoteErr != "" {
 		lines = append(lines, errStyle.Render("远端: "+a.remoteErr))
 	}
@@ -517,10 +557,15 @@ func (a *App) viewDetail() string {
 			}
 		}
 	case tabBranch:
+		lines = append(lines, helpStyle.Render("↑↓: select  Space: checkout"))
 		if len(a.branches) == 0 {
 			lines = append(lines, "暂无分支")
 		} else {
-			for _, b := range a.branches {
+			for i, b := range a.branches {
+				prefix := "  "
+				if i == a.detailBRIdx {
+					prefix = selectedMarkerStyle.Render(">") + " "
+				}
 				var nameStr string
 				if b.Current {
 					nameStr = currentBranchStyle.Render("* " + b.Name)
@@ -528,7 +573,7 @@ func (a *App) viewDetail() string {
 					nameStr = "  " + b.Name
 				}
 				upstreamStr := labelDimStyle.Render("upstream:") + emptyDash(b.Upstream)
-				lines = append(lines, nameStr+"  "+upstreamStr+"  "+b.SyncSymbol)
+				lines = append(lines, prefix+nameStr+"  "+upstreamStr+"  "+b.SyncSymbol)
 			}
 		}
 	}
@@ -763,6 +808,17 @@ func emptyDash(v string) string {
 		return "—"
 	}
 	return v
+}
+
+func (a *App) checkoutCmd(repo model.RepoStatus, branch string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := a.git.CheckoutBranch(ctx, repo.Path, branch); err != nil {
+			return checkoutDoneMsg{err: err}
+		}
+		return checkoutDoneMsg{repo: repo}
+	}
 }
 
 func max(a int, b int) int {
