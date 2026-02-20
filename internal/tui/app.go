@@ -38,7 +38,6 @@ type tab int
 const (
 	tabPR tab = iota
 	tabIssue
-	tabBranch
 )
 
 type refreshDoneMsg struct {
@@ -50,7 +49,6 @@ type remoteLoadedMsg struct {
 	repoPath  string
 	prs       []model.PullRequestItem
 	issues    []model.IssueItem
-	branches  []model.BranchInfo
 	remoteErr string
 	prOpen    *int
 	issueOpen *int
@@ -59,11 +57,6 @@ type remoteLoadedMsg struct {
 type diffLoadedMsg struct {
 	content string
 	err     error
-}
-
-type checkoutDoneMsg struct {
-	repo model.RepoStatus
-	err  error
 }
 
 type pullDoneMsg struct {
@@ -98,10 +91,8 @@ type App struct {
 	detailTab   tab
 	detailPRIdx int
 	detailISIdx int
-	detailBRIdx int
 	prList      []model.PullRequestItem
 	issues      []model.IssueItem
-	branches    []model.BranchInfo
 	remoteErr   string
 
 	diffViewport viewport.Model
@@ -175,12 +166,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.prList = m.prs
 		a.issues = m.issues
-		a.branches = m.branches
-		if len(a.branches) == 0 {
-			a.detailBRIdx = 0
-		} else if a.detailBRIdx >= len(a.branches) {
-			a.detailBRIdx = len(a.branches) - 1
-		}
 		a.remoteErr = m.remoteErr
 		a.updateRepoOpenCounts(m.repoPath, m.prOpen, m.issueOpen)
 		return a, nil
@@ -197,15 +182,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.setSearch(a.diffSearch)
 		return a, nil
 
-	case checkoutDoneMsg:
-		a.loading = false
-		if m.err != nil {
-			a.errText = m.err.Error()
-			return a, nil
-		}
-		a.errText = ""
-		return a, tea.Batch(a.refreshAllCmd(), a.loadRemoteCmd(m.repo))
-
 	case pullDoneMsg:
 		if m.err != nil {
 			a.errText = "pull 失败: " + m.err.Error()
@@ -217,6 +193,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pullAllDoneMsg:
 		if m.failed > 0 && m.lastErr != nil {
 			a.errText = fmt.Sprintf("pull 完成: %d 成功, %d 失败 (%s)", m.completed, m.failed, m.lastErr.Error())
+		} else {
+			a.errText = ""
+		}
+		return a, a.refreshAllCmd()
+
+	case lazygitDoneMsg:
+		if m.err != nil {
+			a.errText = fmt.Sprintf("lazygit 执行失败: %v", m.err)
 		} else {
 			a.errText = ""
 		}
@@ -322,7 +306,6 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.detailTab = tabPR
 		a.detailPRIdx = 0
 		a.detailISIdx = 0
-		a.detailBRIdx = 0
 		a.remoteErr = ""
 		return a, a.loadRemoteCmd(visible[a.selectedIndex])
 	case "f":
@@ -334,6 +317,11 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(a.repos) > 0 {
 			a.loading = true
 			return a, a.pullAllCmd()
+		}
+	case "g":
+		if len(visible) > 0 {
+			repo := visible[a.selectedIndex]
+			return a, a.runLazygitCmd(repo.Path)
 		}
 	}
 	return a, nil
@@ -351,15 +339,14 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, a.loadRemoteCmd(current)
 	case "tab", "right":
-		a.detailTab = tab((int(a.detailTab) + 1) % 3)
+		a.detailTab = tab((int(a.detailTab) + 1) % 2)
 	case "left", "shift+tab":
-		a.detailTab = tab((int(a.detailTab) + 2) % 3)
+		a.detailTab = tab((int(a.detailTab) + 1) % 2)
 	case "1":
 		a.detailTab = tabPR
 	case "2":
 		a.detailTab = tabIssue
-	case "3":
-		a.detailTab = tabBranch
+
 	case "o":
 		return a, a.openCurrentURLCmd()
 	case "d":
@@ -376,24 +363,12 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.detailTab == tabIssue && a.detailISIdx > 0 {
 			a.detailISIdx--
 		}
-		if a.detailTab == tabBranch && a.detailBRIdx > 0 {
-			a.detailBRIdx--
-		}
 	case "down", "j":
 		if a.detailTab == tabPR && a.detailPRIdx < len(a.prList)-1 {
 			a.detailPRIdx++
 		}
 		if a.detailTab == tabIssue && a.detailISIdx < len(a.issues)-1 {
 			a.detailISIdx++
-		}
-		if a.detailTab == tabBranch && a.detailBRIdx < len(a.branches)-1 {
-			a.detailBRIdx++
-		}
-	case " ":
-		if a.detailTab == tabBranch && len(a.branches) > 0 {
-			branch := a.branches[a.detailBRIdx]
-			a.loading = true
-			return a, a.checkoutCmd(current, branch.Name)
 		}
 	}
 	return a, nil
@@ -444,7 +419,7 @@ func (a *App) viewHome() string {
 	if a.gh.Authenticated() {
 		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  f pull  F pull全部  q 退出")
+	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  f pull  F pull全部  g lazygit  q 退出")
 	if a.filterMode {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
@@ -540,7 +515,7 @@ func (a *App) viewDetail() string {
 		labelDimStyle.Render("  status: ") + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) +
 		labelDimStyle.Render(")") + "  " + helpStyle.Render("[q] back")
 
-	tabLabels := []string{"PRs", "Issues", "Branches"}
+	tabLabels := []string{"PRs", "Issues"}
 	tabStrs := make([]string, len(tabLabels))
 	for i, label := range tabLabels {
 		if tab(i) == a.detailTab {
@@ -591,26 +566,6 @@ func (a *App) viewDetail() string {
 				} else {
 					lines = append(lines, "  "+numStr+" "+is.Title+"  "+dateStr)
 				}
-			}
-		}
-	case tabBranch:
-		lines = append(lines, helpStyle.Render("↑↓: select  Space: checkout"))
-		if len(a.branches) == 0 {
-			lines = append(lines, "暂无分支")
-		} else {
-			for i, b := range a.branches {
-				prefix := "  "
-				if i == a.detailBRIdx {
-					prefix = selectedMarkerStyle.Render(">") + " "
-				}
-				var nameStr string
-				if b.Current {
-					nameStr = currentBranchStyle.Render("* " + b.Name)
-				} else {
-					nameStr = "  " + b.Name
-				}
-				upstreamStr := labelDimStyle.Render("upstream:") + emptyDash(b.Upstream)
-				lines = append(lines, prefix+nameStr+"  "+upstreamStr+"  "+b.SyncSymbol)
 			}
 		}
 	}
@@ -684,11 +639,10 @@ func (a *App) loadRemoteCmd(repo model.RepoStatus) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		branches, _ := a.git.ListBranches(ctx, repo.Path, repo.Dirty)
 
 		owner, rname, err := a.git.ParseOwnerRepoFromRemote(ctx, repo.Path)
 		if err != nil {
-			return remoteLoadedMsg{repoPath: repo.Path, branches: branches, remoteErr: "no-remote"}
+			return remoteLoadedMsg{repoPath: repo.Path, remoteErr: "no-remote"}
 		}
 		prs, errPR := a.gh.ListPRs(ctx, owner, rname)
 		issues, errIssue := a.gh.ListIssues(ctx, owner, rname)
@@ -711,7 +665,6 @@ func (a *App) loadRemoteCmd(repo model.RepoStatus) tea.Cmd {
 			repoPath:  repo.Path,
 			prs:       prs,
 			issues:    issues,
-			branches:  branches,
 			remoteErr: remoteErr,
 			prOpen:    prOpen,
 			issueOpen: issueOpen,
@@ -881,15 +834,23 @@ func (a *App) pullAllCmd() tea.Cmd {
 	}
 }
 
-func (a *App) checkoutCmd(repo model.RepoStatus, branch string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := a.git.CheckoutBranch(ctx, repo.Path, branch); err != nil {
-			return checkoutDoneMsg{err: err}
+func (a *App) runLazygitCmd(repoPath string) tea.Cmd {
+	// 检查 lazygit 是否可用
+	if _, err := exec.LookPath("lazygit"); err != nil {
+		return func() tea.Msg {
+			return lazygitDoneMsg{err: fmt.Errorf("lazygit 未安装，请先安装 lazygit: https://github.com/jesseduffield/lazygit")}
 		}
-		return checkoutDoneMsg{repo: repo}
 	}
+
+	c := exec.Command("lazygit")
+	c.Dir = repoPath
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return lazygitDoneMsg{err: err}
+	})
+}
+
+type lazygitDoneMsg struct {
+	err error
 }
 
 func max(a int, b int) int {

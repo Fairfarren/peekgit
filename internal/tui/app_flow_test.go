@@ -79,8 +79,8 @@ func TestUpdateDetailTabSwitch(t *testing.T) {
 	if a.detailTab != tabIssue {
 		t.Fatalf("tab=%v", a.detailTab)
 	}
-	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
-	if a.detailTab != tabBranch {
+	_, _ = a.updateDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	if a.detailTab != tabPR {
 		t.Fatalf("tab=%v", a.detailTab)
 	}
 }
