@@ -199,6 +199,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.refreshAllCmd()
 
 	case lazygitDoneMsg:
+		if m.err != nil {
+			a.errText = fmt.Sprintf("lazygit 执行失败: %v", m.err)
+		} else {
+			a.errText = ""
+		}
 		return a, a.refreshAllCmd()
 
 	case tickMsg:
@@ -830,6 +835,13 @@ func (a *App) pullAllCmd() tea.Cmd {
 }
 
 func (a *App) runLazygitCmd(repoPath string) tea.Cmd {
+	// 检查 lazygit 是否可用
+	if _, err := exec.LookPath("lazygit"); err != nil {
+		return func() tea.Msg {
+			return lazygitDoneMsg{err: fmt.Errorf("lazygit 未安装，请先安装 lazygit: https://github.com/jesseduffield/lazygit")}
+		}
+	}
+
 	c := exec.Command("lazygit")
 	c.Dir = repoPath
 	return tea.ExecProcess(c, func(err error) tea.Msg {
