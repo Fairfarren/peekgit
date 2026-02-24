@@ -230,3 +230,79 @@ func (c *CLI) Pull(ctx context.Context, repoPath string) error {
 	_, err := c.exec.Run(ctx, repoPath, "pull", "--quiet")
 	return err
 }
+
+// HasPendingChanges checks if a repository has pending changes that need attention.
+// It checks for:
+// - Local uncommitted changes (dirty working tree)
+// - Local commits not pushed to remote (ahead > 0)
+// This is a lightweight check that performs a quick git fetch.
+func (c *CLI) HasPendingChanges(ctx context.Context, repoPath string) bool {
+	// Check if working tree is dirty
+	if c.isDirty(ctx, repoPath) {
+		return true
+	}
+
+	// Get current branch
+	branch := c.currentBranch(ctx, repoPath)
+	if branch == "" {
+		return false
+	}
+
+	// Try to get upstream branch
+	upstream := c.resolveUpstream(ctx, repoPath, branch)
+	if upstream == "" {
+		// No upstream configured, can't check for unpushed commits
+		return false
+	}
+
+	// Quick fetch to get remote info (with short timeout to be lightweight)
+	fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if _, err := c.exec.Run(fetchCtx, repoPath, "fetch", "origin", "--quiet"); err != nil {
+		// Fetch failed, can't determine ahead/behind
+		return false
+	}
+
+	// Check if local is ahead of remote
+	ahead, behind, err := c.aheadBehind(ctx, repoPath, upstream)
+	if err != nil {
+		return false
+	}
+
+	// Has pending if ahead (local has commits not pushed) or behind (needs pull)
+	return ahead > 0 || behind > 0
+}
+
+// HasRemoteUpdate checks if a repository has remote updates that need to be pulled.
+// It checks if local branch is behind remote (needs pull).
+// This is a lightweight check that performs a quick git fetch.
+func (c *CLI) HasRemoteUpdate(ctx context.Context, repoPath string) bool {
+	// Get current branch
+	branch := c.currentBranch(ctx, repoPath)
+	if branch == "" {
+		return false
+	}
+
+	// Try to get upstream branch
+	upstream := c.resolveUpstream(ctx, repoPath, branch)
+	if upstream == "" {
+		// No upstream configured, can't check for remote updates
+		return false
+	}
+
+	// Quick fetch to get remote info (with short timeout to be lightweight)
+	fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if _, err := c.exec.Run(fetchCtx, repoPath, "fetch", "origin", "--quiet"); err != nil {
+		// Fetch failed, can't determine behind
+		return false
+	}
+
+	// Check if local is behind remote (needs pull)
+	_, behind, err := c.aheadBehind(ctx, repoPath, upstream)
+	if err != nil {
+		return false
+	}
+
+	return behind > 0
+}

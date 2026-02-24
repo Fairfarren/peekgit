@@ -86,7 +86,9 @@ type App struct {
 	cardWidth     int
 
 	workspaces      []string
-	workspaceCounts map[string]int
+	workspaceCounts   map[string]int
+	workspaceHasUpdate map[string]bool
+	workspaceChecking bool
 	selectedWsIndex int
 
 	filterMode bool
@@ -133,25 +135,28 @@ func New(cfg config.Config) *App {
 	}
 
 	app := &App{
-		cfg:             cfg,
-		git:             gitcli.New(),
-		gh:              ghprovider.New(context.Background(), cfg.NoGitHub),
-		screen:          screenWorkspaces,
-		detailTab:       tabPR,
-		columns:         1,
-		cardWidth:       cardMinWidth,
-		loading:         false, // Not loading initially, wait for enter
-		matchIdx:        -1,
-		remoteErr:       "",
-		searchMode:      false,
-		workspaces:      wsKeys,
-		workspaceCounts: wsCounts,
+		cfg:               cfg,
+		git:               gitcli.New(),
+		gh:                ghprovider.New(context.Background(), cfg.NoGitHub),
+		screen:            screenWorkspaces,
+		detailTab:         tabPR,
+		columns:           1,
+		cardWidth:         cardMinWidth,
+		loading:           false, // Not loading initially, wait for enter
+		matchIdx:          -1,
+		remoteErr:         "",
+		searchMode:        false,
+		workspaces:        wsKeys,
+		workspaceCounts:   wsCounts,
+		workspaceHasUpdate: make(map[string]bool),
 	}
 
 	return app
 }
 
 func (a *App) Init() tea.Cmd {
+	// Run initial workspace update check in background
+	go a.checkWorkspaceUpdates()
 	return tickCmd(a.cfg.IntervalSec)
 }
 
@@ -234,6 +239,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.refreshAllCmd()
 
 	case tickMsg:
+		// Check workspace updates in background on every tick
+		go a.checkWorkspaceUpdates()
 		if a.screen == screenHome {
 			return a, tea.Batch(a.refreshAllCmd(), tickCmd(a.cfg.IntervalSec))
 		}
@@ -560,7 +567,15 @@ func (a *App) renderWorkspaceCard(name string, selected bool) string {
 	nameStr := cardNameStyle.Render(name)
 	countStr := labelDimStyle.Render(fmt.Sprintf("%d repos", a.workspaceCounts[name]))
 
-	return s.Render(nameStr + "\n" + countStr)
+	// Show checking status or update indicator
+	var indicator string
+	if a.workspaceChecking {
+		indicator = " " + loadingStyle.Render("↻")
+	} else if a.workspaceHasUpdate[name] {
+		indicator = " " + dirtyStyle.Render("↓")
+	}
+
+	return s.Render(nameStr + indicator + "\n" + countStr)
 }
 
 func (a *App) viewHome() string {
@@ -1008,6 +1023,41 @@ func (a *App) filteredRepos() []model.RepoStatus {
 		a.selectedIndex = max(0, len(out)-1)
 	}
 	return out
+}
+
+// checkWorkspaceUpdates checks if any workspace has repos that need pull from remote.
+// This is a lightweight background check that runs without blocking the UI.
+func (a *App) checkWorkspaceUpdates() {
+	a.workspaceChecking = true
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for _, wsName := range a.workspaces {
+		paths := a.cfg.Global.Workspaces[wsName]
+		repos, err := workspace.ScanRepos(paths)
+		if err != nil || len(repos) == 0 {
+			a.workspaceHasUpdate[wsName] = false
+			continue
+		}
+
+		// Check first repo only for quick check
+		// For performance, we'll check up to 3 repos
+		maxCheck := 3
+		if len(repos) < maxCheck {
+			maxCheck = len(repos)
+		}
+
+		hasUpdate := false
+		for i := 0; i < maxCheck; i++ {
+			repoPath := repos[i].Path
+			if a.git.HasRemoteUpdate(ctx, repoPath) {
+				hasUpdate = true
+				break
+			}
+		}
+		a.workspaceHasUpdate[wsName] = hasUpdate
+	}
+	a.workspaceChecking = false
 }
 
 func (a *App) recomputeGrid() {
