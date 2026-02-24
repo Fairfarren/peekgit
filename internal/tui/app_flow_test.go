@@ -245,3 +245,21 @@ func TestViewHomeLoadingHidesCards(t *testing.T) {
 		t.Fatalf("expected cards to be hidden when loading")
 	}
 }
+
+func TestViewDiffKeepsFooterOnTinyHeight(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDiff
+	a.height = 6
+	a.diffContent = strings.Repeat("line\n", 20)
+	a.diffViewport.SetContent(a.diffContent)
+
+	view := a.viewDiff()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if !strings.Contains(lines[len(lines)-1], "[q] back") {
+		t.Fatalf("expected footer help on last line")
+	}
+}

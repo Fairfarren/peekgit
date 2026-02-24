@@ -787,8 +787,8 @@ func (a *App) viewDiff() string {
 	// 动态调整 viewport 高度
 	// -1 为底部的 help 留出空间
 	vHeight := a.height - len(headerLines) - 1
-	if vHeight < 5 {
-		vHeight = 5
+	if vHeight < 0 {
+		vHeight = 0
 	}
 	if a.diffViewport.Height != vHeight {
 		a.diffViewport.Height = vHeight
