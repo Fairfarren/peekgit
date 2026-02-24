@@ -233,3 +233,15 @@ func TestRemoteLoadedMsgUpdatesRepoCounters(t *testing.T) {
 		t.Fatalf("issue open not updated, got=%v", a.repos[0].IssueOpen)
 	}
 }
+
+func TestViewHomeLoadingHidesCards(t *testing.T) {
+	a := newTestApp()
+	a.loading = true
+	view := a.viewHome()
+	if !strings.Contains(view, "刷新中...") {
+		t.Fatalf("expected loading text")
+	}
+	if strings.Contains(view, "repo-a") {
+		t.Fatalf("expected cards to be hidden when loading")
+	}
+}

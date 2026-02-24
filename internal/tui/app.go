@@ -167,8 +167,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = m.Width
 		a.height = m.Height
 		a.recomputeGrid()
-		a.diffViewport.Width = max(20, a.width-4)
-		a.diffViewport.Height = max(5, a.height-7)
+		a.diffViewport.Width = max(20, a.width-2)
+		a.diffViewport.Height = max(5, a.height-4)
 		return a, nil
 
 	case refreshDoneMsg:
@@ -420,7 +420,7 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.detailTab == tabPR && len(a.prList) > 0 {
 			a.screen = screenDiff
 			a.diffLoading = true
-			a.diffViewport = viewport.New(max(20, a.width-4), max(5, a.height-7))
+			a.diffViewport = viewport.New(max(20, a.width-2), max(5, a.height-4))
 			return a, a.loadPRDiffCmd(current, a.prList[a.detailPRIdx].Number)
 		}
 	case "up", "k":
@@ -486,12 +486,11 @@ func (a *App) viewWorkspaces() string {
 	header := titleStyle.Render("Repo Monitor - Workspaces")
 	help := helpStyle.Render("↑↓←→/h j k l 选择  Space/Enter 进入  q 退出")
 
-	lines := []string{header, ""}
+	headerLines := []string{header, ""}
 
 	if len(a.workspaces) == 0 {
-		lines = append(lines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
-		lines = append(lines, help)
-		return strings.Join(lines, "\n")
+		headerLines = append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json", help)
+		return strings.Join(headerLines, "\n")
 	}
 
 	rows := make([]string, 0)
@@ -519,7 +518,22 @@ func (a *App) viewWorkspaces() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
 
-	lines = append(lines, rows...)
+	// Calculate how many rows we can display
+	// renderWorkspaceCard is 2 lines + 2 border lines = 4 lines high.
+	rowHeight := 4
+	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
+
+	displayRows := availableHeight / rowHeight
+	if displayRows < 1 {
+		displayRows = 1
+	}
+
+	selectedRow := a.selectedWsIndex / a.columns
+	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+
+	visibleRows := rows[startRow:endRow]
+
+	lines := append(headerLines, visibleRows...)
 	lines = append(lines, "", help)
 	return strings.Join(lines, "\n")
 }
@@ -559,19 +573,19 @@ func (a *App) viewHome() string {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
 
-	lines := []string{header, tokenState}
+	headerLines := []string{header, tokenState}
 	if a.errText != "" {
-		lines = append(lines, errStyle.Render("错误: "+a.errText))
+		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
 	}
 	if a.loading {
-		lines = append(lines, loadingStyle.Render("刷新中..."))
+		headerLines = append(headerLines, loadingStyle.Render("刷新中..."), "", help)
+		return strings.Join(headerLines, "\n")
 	}
 
 	repos := a.filteredRepos()
-	if len(repos) == 0 && !a.loading {
-		lines = append(lines, "没有仓库（可调整过滤条件）")
-		lines = append(lines, help)
-		return strings.Join(lines, "\n")
+	if len(repos) == 0 {
+		headerLines = append(headerLines, "没有仓库（可调整过滤条件）", help)
+		return strings.Join(headerLines, "\n")
 	}
 
 	rows := make([]string, 0)
@@ -599,7 +613,21 @@ func (a *App) viewHome() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
 
-	lines = append(lines, rows...)
+	// Each card row is 5 lines high (3 lines content + 2 border lines)
+	rowHeight := 5
+	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
+
+	displayRows := availableHeight / rowHeight
+	if displayRows < 1 {
+		displayRows = 1
+	}
+
+	selectedRow := a.selectedIndex / a.columns
+	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+
+	visibleRows := rows[startRow:endRow]
+
+	lines := append(headerLines, visibleRows...)
 	lines = append(lines, help)
 	return strings.Join(lines, "\n")
 }
@@ -663,61 +691,112 @@ func (a *App) viewDetail() string {
 	if a.loading {
 		refreshText = loadingStyle.Render("刷新中...")
 	}
-	lines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
+	headerLines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
 	if a.errText != "" {
-		lines = append(lines, errStyle.Render("错误: "+a.errText))
+		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
 	}
 	if a.remoteErr != "" {
-		lines = append(lines, errStyle.Render("远端: "+a.remoteErr))
+		headerLines = append(headerLines, errStyle.Render("远端: "+a.remoteErr))
 	}
 
+	var subHelp string
 	switch a.detailTab {
 	case tabPR:
-		lines = append(lines, helpStyle.Render("↑↓: select  d: diff  o: open"))
+		subHelp = helpStyle.Render("↑↓: select  d: diff  o: open")
+	case tabIssue:
+		subHelp = helpStyle.Render("↑↓: select  o: open")
+	}
+
+	// Calculate available height for the list
+	// -1 for subHelp at bottom
+	listHeight := a.height - len(headerLines) - 1
+	if listHeight < 0 {
+		listHeight = 0
+	}
+
+	var listLines []string
+	if a.detailTab == tabPR {
 		if len(a.prList) == 0 {
-			lines = append(lines, "暂无 PR")
+			listLines = append(listLines, "暂无 PR")
 		} else {
-			for i, pr := range a.prList {
+			start, end := calculateScrollWindow(len(a.prList), a.detailPRIdx, listHeight)
+			for i := start; i < end; i++ {
+				pr := a.prList[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
 				authStr := authorStyle.Render(pr.Author)
 				dateStr := dateStyle.Render("updated " + pr.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailPRIdx {
-					lines = append(lines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
 				} else {
-					lines = append(lines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
 				}
 			}
 		}
-	case tabIssue:
-		lines = append(lines, helpStyle.Render("↑↓: select  o: open"))
+	} else {
 		if len(a.issues) == 0 {
-			lines = append(lines, "暂无 Issues")
+			listLines = append(listLines, "暂无 Issues")
 		} else {
-			for i, is := range a.issues {
+			start, end := calculateScrollWindow(len(a.issues), a.detailISIdx, listHeight)
+			for i := start; i < end; i++ {
+				is := a.issues[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
 				dateStr := dateStyle.Render("updated " + is.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailISIdx {
-					lines = append(lines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
+					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
 				} else {
-					lines = append(lines, "  "+numStr+" "+is.Title+"  "+dateStr)
+					listLines = append(listLines, "  "+numStr+" "+is.Title+"  "+dateStr)
 				}
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+
+	res := append(headerLines, listLines...)
+	res = append(res, subHelp)
+	return strings.Join(res, "\n")
+}
+
+func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
+	if itemCount <= height {
+		return 0, itemCount
+	}
+	start := selectedIdx - height/2
+	if start < 0 {
+		start = 0
+	}
+	if start+height > itemCount {
+		start = itemCount - height
+	}
+	return start, start + height
 }
 
 func (a *App) viewDiff() string {
 	if a.diffLoading {
 		return loadingStyle.Render("加载 diff 中...")
 	}
-	header := diffHeaderStyle.Render("Diff") + "  " + helpStyle.Render("[q] back  / search  n/p next/prev")
+
+	header := diffHeaderStyle.Render("Diff")
+	help := helpStyle.Render("[q] back  / search  n/p next/prev")
+
+	headerLines := []string{header}
 	if a.searchMode {
-		header += "\n" + searchInfoStyle.Render("搜索: ") + a.searchInput
+		headerLines = append(headerLines, searchInfoStyle.Render("搜索: ")+a.searchInput)
 	} else if a.diffSearch != "" {
-		header += "\n" + searchInfoStyle.Render(fmt.Sprintf("搜索词: %s  命中: %d", a.diffSearch, len(a.matches)))
+		headerLines = append(headerLines, searchInfoStyle.Render(fmt.Sprintf("搜索词: %s  命中: %d", a.diffSearch, len(a.matches))))
 	}
-	return header + "\n" + a.diffViewport.View()
+
+	// 动态调整 viewport 高度
+	// -1 为底部的 help 留出空间
+	vHeight := a.height - len(headerLines) - 1
+	if vHeight < 5 {
+		vHeight = 5
+	}
+	if a.diffViewport.Height != vHeight {
+		a.diffViewport.Height = vHeight
+	}
+
+	content := a.diffViewport.View()
+	res := append(headerLines, content, help)
+	return strings.Join(res, "\n")
 }
 
 func (a *App) refreshAllCmd() tea.Cmd {
