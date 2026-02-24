@@ -1028,6 +1028,10 @@ func (a *App) filteredRepos() []model.RepoStatus {
 // checkWorkspaceUpdates checks if any workspace has repos that need pull from remote.
 // This is a lightweight background check that runs without blocking the UI.
 func (a *App) checkWorkspaceUpdates() {
+	// Prevent overlapping goroutines
+	if a.workspaceChecking {
+		return
+	}
 	a.workspaceChecking = true
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
