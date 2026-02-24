@@ -144,11 +144,6 @@ func New(cfg config.Config) *App {
 		workspaceCounts: wsCounts,
 	}
 
-	if len(wsKeys) == 0 {
-		// If no global workspaces configured, skip workspace screen?
-		// We'll just show empty workspace list.
-	}
-
 	return app
 }
 
@@ -171,7 +166,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diffViewport.Width = max(20, a.width-4)
 		a.diffViewport.Height = max(5, a.height-7)
 		return a, nil
-
 
 	case refreshDoneMsg:
 		a.loading = false
@@ -334,7 +328,12 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	visible := a.filteredRepos()
 	if len(visible) == 0 {
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "q", "esc":
+			a.screen = screenWorkspaces
+			a.filterMode = false
+			a.filterText = ""
+			return a, nil
+		case "ctrl+c":
 			return a, tea.Quit
 		case "r":
 			a.loading = true

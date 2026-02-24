@@ -53,6 +53,33 @@ func TestUpdateHomeEnterToDetail(t *testing.T) {
 	}
 }
 
+func TestUpdateHomeEmptyListBackToWorkspaces(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenHome
+	a.repos = nil
+	a.filterMode = true
+	a.filterText = "repo"
+
+	_, _ = a.updateHome(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.screen != screenWorkspaces {
+		t.Fatalf("expected workspaces screen")
+	}
+	if a.filterMode {
+		t.Fatalf("expected filter mode off")
+	}
+	if a.filterText != "" {
+		t.Fatalf("expected empty filter text")
+	}
+
+	a.screen = screenHome
+	a.filterMode = true
+	a.filterText = "repo"
+	_, _ = a.updateHome(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if a.screen != screenWorkspaces {
+		t.Fatalf("expected workspaces screen on q")
+	}
+}
+
 func TestUpdateFilterInput(t *testing.T) {
 	a := newTestApp()
 	a.filterMode = true

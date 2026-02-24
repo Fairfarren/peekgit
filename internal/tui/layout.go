@@ -40,7 +40,7 @@ func moveIndex(current int, total int, columns int, key string) int {
 		current = total - 1
 	}
 
-	next := current
+	var next int
 	switch key {
 	case "up":
 		next = current - columns
