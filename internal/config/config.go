@@ -50,8 +50,11 @@ func LoadGlobalConfig() (GlobalConfig, error) {
 	// Expand ~ in workspace paths
 	for wsName, paths := range cfg.Workspaces {
 		for i, p := range paths {
-			if strings.HasPrefix(p, "~") {
-				cfg.Workspaces[wsName][i] = filepath.Join(home, p[1:])
+			switch {
+			case p == "~":
+				cfg.Workspaces[wsName][i] = home
+			case strings.HasPrefix(p, "~/"), strings.HasPrefix(p, "~\\"):
+				cfg.Workspaces[wsName][i] = filepath.Join(home, p[2:])
 			}
 		}
 	}

@@ -124,7 +124,11 @@ func New(cfg config.Config) *App {
 	wsCounts := make(map[string]int)
 	for _, k := range wsKeys {
 		paths := cfg.Global.Workspaces[k]
-		repos, _ := workspace.ScanRepos(paths)
+		repos, err := workspace.ScanRepos(paths)
+		if err != nil {
+			wsCounts[k] = 0
+			continue
+		}
 		wsCounts[k] = len(repos)
 	}
 

@@ -1,2 +1,4 @@
 /peekgit
 /repo-monitor
+coverage.out
+*.coverprofile

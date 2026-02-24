@@ -15,22 +15,6 @@ func ScanRepos(configuredPaths []string) ([]RepoDir, error) {
 	return scanConfiguredPaths(configuredPaths)
 }
 
-func isPathTraversal(rel string) bool {
-	if rel == ".." {
-		return true
-	}
-	if strings.HasPrefix(rel, "../") {
-		return true
-	}
-	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return true
-	}
-	if filepath.IsAbs(rel) {
-		return true
-	}
-	return false
-}
-
 func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 	repos := make([]RepoDir, 0, len(paths))
 	for _, p := range paths {
@@ -47,7 +31,6 @@ func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 	}
 	return repos, nil
 }
-
 
 func IsGitRepo(path string) (bool, error) {
 	gitPath := filepath.Join(path, ".git")
