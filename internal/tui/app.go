@@ -755,10 +755,11 @@ func (a *App) viewDetail() string {
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
 				authStr := authorStyle.Render(pr.Author)
 				dateStr := dateStyle.Render("updated " + pr.UpdatedAt.Format("2006-01-02"))
+				branchStr := fmt.Sprintf("[%s -> %s]", emptyDash(pr.HeadBranch), emptyDash(pr.BaseBranch))
 				if i == a.detailPRIdx {
-					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+" "+branchStr+"  "+authStr+"  "+dateStr)
 				} else {
-					listLines = append(listLines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, "  "+numStr+" "+pr.Title+" "+branchStr+"  "+authStr+"  "+dateStr)
 				}
 			}
 		}
