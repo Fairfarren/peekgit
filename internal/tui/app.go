@@ -28,7 +28,8 @@ const (
 type screen int
 
 const (
-	screenHome screen = iota
+	screenWorkspaces screen = iota
+	screenHome
 	screenDetail
 	screenDiff
 )
@@ -84,6 +85,10 @@ type App struct {
 	columns       int
 	cardWidth     int
 
+	workspaces      []string
+	workspaceCounts map[string]int
+	selectedWsIndex int
+
 	filterMode bool
 	filterText string
 
@@ -109,23 +114,46 @@ type App struct {
 }
 
 func New(cfg config.Config) *App {
-	return &App{
-		cfg:        cfg,
-		git:        gitcli.New(),
-		gh:         ghprovider.New(context.Background(), cfg.NoGitHub),
-		screen:     screenHome,
-		detailTab:  tabPR,
-		columns:    1,
-		cardWidth:  cardMinWidth,
-		loading:    true,
-		matchIdx:   -1,
-		remoteErr:  "",
-		searchMode: false,
+	wsKeys := make([]string, 0, len(cfg.Global.Workspaces))
+	for k := range cfg.Global.Workspaces {
+		wsKeys = append(wsKeys, k)
 	}
+	sort.Strings(wsKeys)
+
+	// Pre-calculate workspace counts (for display on cards)
+	wsCounts := make(map[string]int)
+	for _, k := range wsKeys {
+		paths := cfg.Global.Workspaces[k]
+		repos, _ := workspace.ScanRepos(paths)
+		wsCounts[k] = len(repos)
+	}
+
+	app := &App{
+		cfg:             cfg,
+		git:             gitcli.New(),
+		gh:              ghprovider.New(context.Background(), cfg.NoGitHub),
+		screen:          screenWorkspaces,
+		detailTab:       tabPR,
+		columns:         1,
+		cardWidth:       cardMinWidth,
+		loading:         false, // Not loading initially, wait for enter
+		matchIdx:        -1,
+		remoteErr:       "",
+		searchMode:      false,
+		workspaces:      wsKeys,
+		workspaceCounts: wsCounts,
+	}
+
+	if len(wsKeys) == 0 {
+		// If no global workspaces configured, skip workspace screen?
+		// We'll just show empty workspace list.
+	}
+
+	return app
 }
 
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(a.refreshAllCmd(), tickCmd(a.cfg.IntervalSec))
+	return tickCmd(a.cfg.IntervalSec)
 }
 
 func tickCmd(intervalSec int) tea.Cmd {
@@ -143,6 +171,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diffViewport.Width = max(20, a.width-4)
 		a.diffViewport.Height = max(5, a.height-7)
 		return a, nil
+
 
 	case refreshDoneMsg:
 		a.loading = false
@@ -220,6 +249,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.updateFilterInput(m)
 		}
 		switch a.screen {
+		case screenWorkspaces:
+			return a.updateWorkspaces(m)
 		case screenHome:
 			return a.updateHome(m)
 		case screenDetail:
@@ -227,6 +258,34 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case screenDiff:
 			return a.updateDiff(m)
 		}
+	}
+	return a, nil
+}
+
+func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(a.workspaces) == 0 {
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			return a, tea.Quit
+		}
+		return a, nil
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return a, tea.Quit
+	case "up", "k":
+		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "up")
+	case "down", "j":
+		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "down")
+	case "left", "h":
+		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "left")
+	case "right", "l":
+		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "right")
+	case " ", "enter":
+		a.screen = screenHome
+		a.loading = true
+		a.selectedIndex = 0
+		return a, a.refreshAllCmd()
 	}
 	return a, nil
 }
@@ -285,7 +344,12 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "q", "esc":
+		a.screen = screenWorkspaces
+		a.filterMode = false
+		a.filterText = ""
+		return a, nil
+	case "ctrl+c":
 		return a, tea.Quit
 	case "r":
 		a.loading = true
@@ -402,6 +466,8 @@ func (a *App) View() string {
 		return "初始化中..."
 	}
 	switch a.screen {
+	case screenWorkspaces:
+		return a.viewWorkspaces()
 	case screenHome:
 		return a.viewHome()
 	case screenDetail:
@@ -413,13 +479,79 @@ func (a *App) View() string {
 	}
 }
 
+func (a *App) viewWorkspaces() string {
+	header := titleStyle.Render("Repo Monitor - Workspaces")
+	help := helpStyle.Render("↑↓←→/h j k l 选择  Space/Enter 进入  q 退出")
+
+	lines := []string{header, ""}
+
+	if len(a.workspaces) == 0 {
+		lines = append(lines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
+		lines = append(lines, help)
+		return strings.Join(lines, "\n")
+	}
+
+	rows := make([]string, 0)
+	for i := 0; i < len(a.workspaces); i += a.columns {
+		end := i + a.columns
+		if end > len(a.workspaces) {
+			end = len(a.workspaces)
+		}
+		cards := make([]string, 0, end-i)
+		for j := i; j < end; j++ {
+			selected := (j == a.selectedWsIndex)
+			cards = append(cards, a.renderWorkspaceCard(a.workspaces[j], selected))
+		}
+		if len(cards) == 1 {
+			rows = append(rows, cards[0])
+			continue
+		}
+		segments := make([]string, 0, len(cards)*2-1)
+		for idx, card := range cards {
+			if idx > 0 {
+				segments = append(segments, strings.Repeat(" ", cardGap))
+			}
+			segments = append(segments, card)
+		}
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
+	}
+
+	lines = append(lines, rows...)
+	lines = append(lines, "", help)
+	return strings.Join(lines, "\n")
+}
+
+func (a *App) renderWorkspaceCard(name string, selected bool) string {
+	borderColor := lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
+	if selected {
+		borderColor = lipgloss.AdaptiveColor{Light: "#2B6FE8", Dark: "#6EA8FF"}
+	}
+	s := lipgloss.NewStyle().
+		Width(a.cardWidth).
+		Padding(0, 1).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor)
+
+	nameStr := cardNameStyle.Render(name)
+	countStr := labelDimStyle.Render(fmt.Sprintf("%d repos", a.workspaceCounts[name]))
+
+	return s.Render(nameStr + "\n" + countStr)
+}
+
 func (a *App) viewHome() string {
-	header := titleStyle.Render("Repo Monitor") + "  " + wsPathStyle.Render("(ws: "+a.cfg.Workspace+")")
+	wsName := ""
+	if len(a.workspaces) > 0 && a.selectedWsIndex < len(a.workspaces) {
+		wsName = a.workspaces[a.selectedWsIndex]
+	}
+	header := titleStyle.Render("Repo Monitor")
+	if wsName != "" {
+		header += "  " + wsPathStyle.Render(fmt.Sprintf("[%s]", wsName))
+	}
 	tokenState := tokenBadStyle.Render("token: unauth")
 	if a.gh.Authenticated() {
 		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  f pull  F pull全部  g lazygit  q 退出")
+	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  f pull  F pull全部  g lazygit  q/ESC 返回")
 	if a.filterMode {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
@@ -587,11 +719,14 @@ func (a *App) viewDiff() string {
 
 func (a *App) refreshAllCmd() tea.Cmd {
 	return func() tea.Msg {
-		wsCfg, cfgErr := workspace.LoadConfig(a.cfg.Workspace)
-		if cfgErr != nil {
-			return refreshDoneMsg{err: cfgErr}
+		if len(a.workspaces) == 0 || a.selectedWsIndex >= len(a.workspaces) {
+			return refreshDoneMsg{repos: []model.RepoStatus{}}
 		}
-		repos, err := workspace.ScanRepos(a.cfg.Workspace, wsCfg.Repos)
+
+		wsName := a.workspaces[a.selectedWsIndex]
+		paths := a.cfg.Global.Workspaces[wsName]
+
+		repos, err := workspace.ScanRepos(paths)
 		if err != nil {
 			return refreshDoneMsg{err: err}
 		}
@@ -760,6 +895,18 @@ func (a *App) recomputeGrid() {
 	availableWidth := max(20, a.width-4)
 	a.columns = computeColumns(availableWidth, cardMinWidth, cardGap)
 	a.cardWidth = computeCardWidth(availableWidth, a.columns, cardGap)
+
+	if a.screen == screenWorkspaces {
+		if len(a.workspaces) == 0 {
+			a.selectedWsIndex = 0
+			return
+		}
+		if a.selectedWsIndex >= len(a.workspaces) {
+			a.selectedWsIndex = len(a.workspaces) - 1
+		}
+		return
+	}
+
 	filtered := a.filteredRepos()
 	if len(filtered) == 0 {
 		a.selectedIndex = 0

@@ -8,7 +8,7 @@ import (
 )
 
 func TestFilteredRepos(t *testing.T) {
-	a := New(config.Config{Workspace: "/tmp", IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
 	a.repos = []model.RepoStatus{{Name: "repo-a"}, {Name: "demo"}}
 	a.filterText = "repo"
 	got := a.filteredRepos()
@@ -18,7 +18,7 @@ func TestFilteredRepos(t *testing.T) {
 }
 
 func TestRecomputeGrid(t *testing.T) {
-	a := New(config.Config{Workspace: "/tmp", IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
 	a.width = 120
 	a.repos = []model.RepoStatus{{Name: "a"}, {Name: "b"}, {Name: "c"}}
 	a.recomputeGrid()
@@ -31,7 +31,7 @@ func TestRecomputeGrid(t *testing.T) {
 }
 
 func TestSearchMatchAndJump(t *testing.T) {
-	a := New(config.Config{Workspace: "/tmp", IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
 	a.diffContent = "a\nmatch\nline\nmatch"
 	a.diffViewport.SetContent(a.diffContent)
 	a.setSearch("match")

@@ -22,7 +22,7 @@ func TestRunSuccess(t *testing.T) {
 	defer func() { runProgram = orig }()
 
 	buf := bytes.NewBuffer(nil)
-	code := run([]string{"--workspace", ".", "--no-github"}, buf)
+	code := run([]string{"--no-github"}, buf)
 	if code != 0 {
 		t.Fatalf("code=%d", code)
 	}
@@ -34,7 +34,7 @@ func TestRunProgramFailure(t *testing.T) {
 	defer func() { runProgram = orig }()
 
 	buf := bytes.NewBuffer(nil)
-	code := run([]string{"--workspace", ".", "--no-github"}, buf)
+	code := run([]string{"--no-github"}, buf)
 	if code != 1 {
 		t.Fatalf("code=%d", code)
 	}

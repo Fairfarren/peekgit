@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -11,21 +13,54 @@ const (
 	DefaultConcurrency = 3
 )
 
+type WorkspaceMap map[string][]string
+
+type GlobalConfig struct {
+	Workspaces WorkspaceMap `json:"workspaces"`
+}
+
 type Config struct {
-	Workspace   string
 	IntervalSec int
 	Concurrency int
 	NoGitHub    bool
+	Global      GlobalConfig
+}
+
+// LoadGlobalConfig reads ~/.config/peekgit/config.json
+func LoadGlobalConfig() (GlobalConfig, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return GlobalConfig{}, err
+	}
+	configPath := filepath.Join(home, ".config", "peekgit", "config.json")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return GlobalConfig{Workspaces: make(WorkspaceMap)}, nil
+		}
+		return GlobalConfig{}, err
+	}
+
+	var cfg GlobalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return GlobalConfig{}, err
+	}
+
+	// Expand ~ in workspace paths
+	for wsName, paths := range cfg.Workspaces {
+		for i, p := range paths {
+			if strings.HasPrefix(p, "~") {
+				cfg.Workspaces[wsName][i] = filepath.Join(home, p[1:])
+			}
+		}
+	}
+
+	return cfg, nil
 }
 
 func Parse(args []string) (Config, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return Config{}, err
-	}
-
 	fs := flag.NewFlagSet("repo-monitor", flag.ContinueOnError)
-	workspace := fs.String("workspace", wd, "workspace path")
 	interval := fs.Int("interval", DefaultIntervalSec, "refresh interval in seconds")
 	concurrency := fs.Int("concurrency", DefaultConcurrency, "fetch concurrency")
 	noGitHub := fs.Bool("no-github", false, "disable GitHub features")
@@ -34,7 +69,7 @@ func Parse(args []string) (Config, error) {
 		return Config{}, err
 	}
 
-	absWorkspace, err := filepath.Abs(*workspace)
+	globalCfg, err := LoadGlobalConfig()
 	if err != nil {
 		return Config{}, err
 	}
@@ -47,9 +82,9 @@ func Parse(args []string) (Config, error) {
 	}
 
 	return Config{
-		Workspace:   absWorkspace,
 		IntervalSec: *interval,
 		Concurrency: *concurrency,
 		NoGitHub:    *noGitHub,
+		Global:      globalCfg,
 	}, nil
 }

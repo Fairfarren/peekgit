@@ -18,51 +18,51 @@ go build -o peekgit ./cmd/repo-monitor
 
 ## 快速开始
 
-进入包含多个仓库的目录，直接运行：
+配置好 `~/.config/peekgit/config.json` 后，在任意目录直接运行：
 
 ```bash
-cd ~/work/my-projects
 repo-monitor
 ```
 
-程序会自动扫描当前目录下的所有 Git 仓库，以卡片形式展示每个仓库的状态。
+程序会首先展示工作区（Workspace）列表卡片，选中后按 Enter 即可进入多仓库监控面板，查看具体的仓库状态。
 
 ## 命令行参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--workspace` | 当前目录 | workspace 根目录路径 |
 | `--interval` | 300 | 自动刷新间隔（秒） |
 | `--concurrency` | 3 | 并发 fetch 数量 |
 | `--no-github` | false | 禁用 GitHub 功能（PR、Issues） |
 
 ```bash
-repo-monitor --workspace ~/work/projects --interval 60 --concurrency 5
+repo-monitor --interval 60 --concurrency 5
 ```
 
-## 配置文件
+## 全局配置文件
 
-在 workspace 根目录创建 `.peekgit.yaml`，可以指定要监控的仓库路径（相对路径）。
+PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的工作区和对应监控的 Git 仓库路径。
 
-```yaml
-# .peekgit.yaml
-# 在 workspace 根目录放置此文件，指定要监控的仓库路径（相对路径）
-# 配置后只监控列出的仓库；没有此文件则自动扫描直接子目录
+你可以将常用的项目分门别类配置在里面（支持 `~` 展开到用户目录）：
 
-repos:
-  - discord-notify
-  - game_portal_react
-  - game_portal_admin/apps/shell_game_portal_admin_react
-  - game_portal_admin/apps/user_transaction_admin_react
-  - game_portal_admin/packages/game_portal_admin_shared_react
+```json
+{
+  "workspaces": {
+    "Fairfarren": [
+      "~/work/www/peekgit",
+      "~/open-source/awesome-project"
+    ],
+    "My Work": [
+      "~/company/frontend",
+      "~/company/backend-api"
+    ]
+  }
+}
 ```
 
 **行为规则**：
 
-- 有 `.peekgit.yaml` 且 `repos` 非空 → 只监控配置中列出的仓库
-- 没有配置文件或 `repos` 为空 → 自动扫描 workspace 下的直接子目录
-
-这对 monorepo 场景特别有用——仓库可能嵌套在多层目录中，通过配置文件可以精确指定要监控的路径。
+- 程序启动时默认优先展示你在 `json` 中配置的全部 Workspaces 卡片列表。
+- 选择某个 Workspace 后，加载该 Workspace 中定义的所有仓库。
 
 ## GitHub 集成
 
@@ -75,7 +75,15 @@ repos:
 
 ## 键盘操作
 
-### 首页
+### 工作区列表视图 (Workspaces)
+
+| 按键 | 操作 |
+|------|------|
+| `↑↓←→` / `h j k l` | 选择工作区卡片 |
+| `Space` / `Enter` | 进入相应工作区的仓库列表 |
+| `q` | 退出 |
+
+### 仓库列表视图 (Home)
 
 | 按键 | 操作 |
 |------|------|
@@ -86,7 +94,7 @@ repos:
 | `f` | pull 当前仓库 |
 | `F` | pull 所有仓库 |
 | `g` | 在当前仓库目录打开 lazygit |
-| `q` | 退出 |
+| `q` / `Esc` | 返回工作区列表 |
 
 ### 详情页
 
@@ -124,8 +132,8 @@ repos:
 ```
 cmd/repo-monitor/      CLI 入口
 internal/
-  config/              命令行参数解析
-  workspace/           仓库扫描与配置文件加载
+  config/              命令行参数解析与 config.json 解析
+  workspace/           仓库有效性验证与绝对路径扫描
   gitcli/              本地 Git 操作
   provider/github/     GitHub API 集成与缓存
   model/               共享数据模型

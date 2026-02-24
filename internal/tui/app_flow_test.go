@@ -10,7 +10,7 @@ import (
 )
 
 func newTestApp() *App {
-	a := New(config.Config{Workspace: "/tmp", IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
 	a.width = 120
 	a.height = 40
 	a.repos = []model.RepoStatus{
