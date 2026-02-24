@@ -1,0 +1,11 @@
+{
+    "workspaces": {
+        "My Workspace 1": [
+            "~/projects/repo1",
+            "~/projects/repo2"
+        ],
+        "My Workspace 2": [
+            "~/go/src/github.com/myuser/repo3"
+        ]
+    }
+}

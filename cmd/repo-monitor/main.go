@@ -24,13 +24,17 @@ func main() {
 func run(args []string, errOut io.Writer) int {
 	cfg, err := config.Parse(args)
 	if err != nil {
-		fmt.Fprintf(errOut, "参数解析失败: %v\n", err)
+		if _, writeErr := fmt.Fprintf(errOut, "参数解析失败: %v\n", err); writeErr != nil {
+			return 2
+		}
 		return 2
 	}
 
 	app := tui.New(cfg)
 	if err := runProgram(app); err != nil {
-		fmt.Fprintf(errOut, "运行失败: %v\n", err)
+		if _, writeErr := fmt.Fprintf(errOut, "运行失败: %v\n", err); writeErr != nil {
+			return 1
+		}
 		return 1
 	}
 	return 0

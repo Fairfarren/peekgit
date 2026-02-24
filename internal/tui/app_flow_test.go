@@ -10,7 +10,7 @@ import (
 )
 
 func newTestApp() *App {
-	a := New(config.Config{Workspace: "/tmp", IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
 	a.width = 120
 	a.height = 40
 	a.repos = []model.RepoStatus{
@@ -50,6 +50,33 @@ func TestUpdateHomeEnterToDetail(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected load command")
+	}
+}
+
+func TestUpdateHomeEmptyListBackToWorkspaces(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenHome
+	a.repos = nil
+	a.filterMode = true
+	a.filterText = "repo"
+
+	_, _ = a.updateHome(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.screen != screenWorkspaces {
+		t.Fatalf("expected workspaces screen")
+	}
+	if a.filterMode {
+		t.Fatalf("expected filter mode off")
+	}
+	if a.filterText != "" {
+		t.Fatalf("expected empty filter text")
+	}
+
+	a.screen = screenHome
+	a.filterMode = true
+	a.filterText = "repo"
+	_, _ = a.updateHome(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if a.screen != screenWorkspaces {
+		t.Fatalf("expected workspaces screen on q")
 	}
 }
 
