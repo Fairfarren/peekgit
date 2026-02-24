@@ -524,14 +524,16 @@ func (a *App) viewWorkspaces() string {
 	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
 
 	displayRows := availableHeight / rowHeight
-	if displayRows < 1 {
-		displayRows = 1
+	if displayRows < 0 {
+		displayRows = 0
 	}
 
-	selectedRow := a.selectedWsIndex / a.columns
-	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
-
-	visibleRows := rows[startRow:endRow]
+	visibleRows := []string{}
+	if displayRows > 0 {
+		selectedRow := a.selectedWsIndex / a.columns
+		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+		visibleRows = rows[startRow:endRow]
+	}
 
 	lines := append(headerLines, visibleRows...)
 	lines = append(lines, "", help)
@@ -618,14 +620,16 @@ func (a *App) viewHome() string {
 	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
 
 	displayRows := availableHeight / rowHeight
-	if displayRows < 1 {
-		displayRows = 1
+	if displayRows < 0 {
+		displayRows = 0
 	}
 
-	selectedRow := a.selectedIndex / a.columns
-	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
-
-	visibleRows := rows[startRow:endRow]
+	visibleRows := []string{}
+	if displayRows > 0 {
+		selectedRow := a.selectedIndex / a.columns
+		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+		visibleRows = rows[startRow:endRow]
+	}
 
 	lines := append(headerLines, visibleRows...)
 	lines = append(lines, help)

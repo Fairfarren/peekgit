@@ -263,3 +263,39 @@ func TestViewDiffKeepsFooterOnTinyHeight(t *testing.T) {
 		t.Fatalf("expected footer help on last line")
 	}
 }
+
+func TestViewHomeTinyHeightHidesCards(t *testing.T) {
+	a := newTestApp()
+	a.height = 3
+
+	view := a.viewHome()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if strings.Contains(view, "repo-a") {
+		t.Fatalf("expected cards to be hidden on tiny height")
+	}
+	if !strings.Contains(lines[len(lines)-1], "q/ESC") {
+		t.Fatalf("expected footer help on last line")
+	}
+}
+
+func TestViewWorkspacesTinyHeightHidesCards(t *testing.T) {
+	a := newTestApp()
+	a.height = 4
+
+	view := a.viewWorkspaces()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if strings.Contains(view, "default") {
+		t.Fatalf("expected workspace cards to be hidden on tiny height")
+	}
+	if !strings.Contains(lines[len(lines)-1], "q 退出") {
+		t.Fatalf("expected footer help on last line")
+	}
+}
