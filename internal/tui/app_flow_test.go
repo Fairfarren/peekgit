@@ -233,3 +233,138 @@ func TestRemoteLoadedMsgUpdatesRepoCounters(t *testing.T) {
 		t.Fatalf("issue open not updated, got=%v", a.repos[0].IssueOpen)
 	}
 }
+
+func TestViewHomeLoadingHidesCards(t *testing.T) {
+	a := newTestApp()
+	a.loading = true
+	view := a.viewHome()
+	if !strings.Contains(view, "刷新中...") {
+		t.Fatalf("expected loading text")
+	}
+	if strings.Contains(view, "repo-a") {
+		t.Fatalf("expected cards to be hidden when loading")
+	}
+}
+
+func TestViewDiffKeepsFooterOnTinyHeight(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDiff
+	a.height = 6
+	a.diffContent = strings.Repeat("line\n", 20)
+	a.diffViewport.SetContent(a.diffContent)
+
+	view := a.viewDiff()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if !strings.Contains(lines[len(lines)-1], "[q] back") {
+		t.Fatalf("expected footer help on last line")
+	}
+}
+
+func TestViewHomeTinyHeightHidesCards(t *testing.T) {
+	a := newTestApp()
+	a.height = 3
+
+	view := a.viewHome()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if strings.Contains(view, "repo-a") {
+		t.Fatalf("expected cards to be hidden on tiny height")
+	}
+	if !strings.Contains(lines[len(lines)-1], "q/ESC") {
+		t.Fatalf("expected footer help on last line")
+	}
+}
+
+func TestViewWorkspacesTinyHeightHidesCards(t *testing.T) {
+	a := newTestApp()
+	a.height = 4
+
+	view := a.viewWorkspaces()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if strings.Contains(view, "default") {
+		t.Fatalf("expected workspace cards to be hidden on tiny height")
+	}
+	if !strings.Contains(lines[len(lines)-1], "q 退出") {
+		t.Fatalf("expected footer help on last line")
+	}
+}
+
+func TestViewDiffUltraTinyHeightKeepsFooter(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDiff
+	a.diffContent = strings.Repeat("line\n", 20)
+	a.diffViewport.SetContent(a.diffContent)
+
+	for _, h := range []int{1, 2} {
+		a.height = h
+		view := a.viewDiff()
+		lines := strings.Split(view, "\n")
+
+		if len(lines) > h {
+			t.Fatalf("height=%d expected rendered lines <= height, got %d", h, len(lines))
+		}
+		if !strings.Contains(lines[len(lines)-1], "[q] back") {
+			t.Fatalf("height=%d expected footer help on last line", h)
+		}
+	}
+}
+
+func TestCalculateScrollWindowBoundaries(t *testing.T) {
+	start, end := calculateScrollWindow(10, 0, 3)
+	if start != 0 || end != 3 {
+		t.Fatalf("first-item boundary failed: got (%d,%d)", start, end)
+	}
+
+	start, end = calculateScrollWindow(10, 5, 3)
+	if start != 4 || end != 7 {
+		t.Fatalf("center window failed: got (%d,%d)", start, end)
+	}
+
+	start, end = calculateScrollWindow(10, 9, 3)
+	if start != 7 || end != 10 {
+		t.Fatalf("last-item boundary failed: got (%d,%d)", start, end)
+	}
+}
+
+func TestViewDetailTinyHeightKeepsFooter(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenDetail
+	a.detailTab = tabPR
+	a.height = 2
+	a.prList = []model.PullRequestItem{{Number: 1, Title: "pr-1", Author: "u"}}
+
+	view := a.viewDetail()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) > a.height {
+		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
+	}
+	if !strings.Contains(lines[len(lines)-1], "d: diff") {
+		t.Fatalf("expected detail footer help on last line")
+	}
+}
+
+func TestViewHomeAndWorkspacesSafeWhenColumnsZero(t *testing.T) {
+	a := newTestApp()
+	a.columns = 0
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("expected no panic when columns is zero: %v", r)
+		}
+	}()
+
+	_ = a.viewHome()
+	_ = a.viewWorkspaces()
+}

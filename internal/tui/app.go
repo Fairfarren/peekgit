@@ -167,8 +167,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = m.Width
 		a.height = m.Height
 		a.recomputeGrid()
-		a.diffViewport.Width = max(20, a.width-4)
-		a.diffViewport.Height = max(5, a.height-7)
+		a.diffViewport.Width = max(20, a.width-2)
+		a.diffViewport.Height = max(5, a.height-4)
 		return a, nil
 
 	case refreshDoneMsg:
@@ -420,7 +420,7 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.detailTab == tabPR && len(a.prList) > 0 {
 			a.screen = screenDiff
 			a.diffLoading = true
-			a.diffViewport = viewport.New(max(20, a.width-4), max(5, a.height-7))
+			a.diffViewport = viewport.New(max(20, a.width-2), max(5, a.height-4))
 			return a, a.loadPRDiffCmd(current, a.prList[a.detailPRIdx].Number)
 		}
 	case "up", "k":
@@ -485,18 +485,18 @@ func (a *App) View() string {
 func (a *App) viewWorkspaces() string {
 	header := titleStyle.Render("Repo Monitor - Workspaces")
 	help := helpStyle.Render("↑↓←→/h j k l 选择  Space/Enter 进入  q 退出")
+	columns := max(1, a.columns)
 
-	lines := []string{header, ""}
+	headerLines := []string{header, ""}
 
 	if len(a.workspaces) == 0 {
-		lines = append(lines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
-		lines = append(lines, help)
-		return strings.Join(lines, "\n")
+		bodyLines := append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
 	rows := make([]string, 0)
-	for i := 0; i < len(a.workspaces); i += a.columns {
-		end := i + a.columns
+	for i := 0; i < len(a.workspaces); i += columns {
+		end := i + columns
 		if end > len(a.workspaces) {
 			end = len(a.workspaces)
 		}
@@ -519,9 +519,31 @@ func (a *App) viewWorkspaces() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
 
-	lines = append(lines, rows...)
-	lines = append(lines, "", help)
-	return strings.Join(lines, "\n")
+	// Calculate how many rows we can display
+	rowHeight := 1
+	if len(rows) > 0 {
+		rowHeight = lipgloss.Height(rows[0])
+		if rowHeight < 1 {
+			rowHeight = 1
+		}
+	}
+	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
+
+	displayRows := availableHeight / rowHeight
+	if displayRows < 0 {
+		displayRows = 0
+	}
+
+	visibleRows := []string{}
+	if displayRows > 0 {
+		selectedRow := a.selectedWsIndex / columns
+		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+		visibleRows = rows[startRow:endRow]
+	}
+
+	bodyLines := append(headerLines, visibleRows...)
+	bodyLines = append(bodyLines, "")
+	return composeWithFooter(a.height, bodyLines, help)
 }
 
 func (a *App) renderWorkspaceCard(name string, selected bool) string {
@@ -543,6 +565,7 @@ func (a *App) renderWorkspaceCard(name string, selected bool) string {
 
 func (a *App) viewHome() string {
 	wsName := ""
+	columns := max(1, a.columns)
 	if len(a.workspaces) > 0 && a.selectedWsIndex < len(a.workspaces) {
 		wsName = a.workspaces[a.selectedWsIndex]
 	}
@@ -559,24 +582,24 @@ func (a *App) viewHome() string {
 		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
 	}
 
-	lines := []string{header, tokenState}
+	headerLines := []string{header, tokenState}
 	if a.errText != "" {
-		lines = append(lines, errStyle.Render("错误: "+a.errText))
+		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
 	}
 	if a.loading {
-		lines = append(lines, loadingStyle.Render("刷新中..."))
+		bodyLines := append(headerLines, loadingStyle.Render("刷新中..."), "")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
 	repos := a.filteredRepos()
-	if len(repos) == 0 && !a.loading {
-		lines = append(lines, "没有仓库（可调整过滤条件）")
-		lines = append(lines, help)
-		return strings.Join(lines, "\n")
+	if len(repos) == 0 {
+		bodyLines := append(headerLines, "没有仓库（可调整过滤条件）")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
 	rows := make([]string, 0)
-	for i := 0; i < len(repos); i += a.columns {
-		end := i + a.columns
+	for i := 0; i < len(repos); i += columns {
+		end := i + columns
 		if end > len(repos) {
 			end = len(repos)
 		}
@@ -599,9 +622,29 @@ func (a *App) viewHome() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
 
-	lines = append(lines, rows...)
-	lines = append(lines, help)
-	return strings.Join(lines, "\n")
+	rowHeight := 1
+	if len(rows) > 0 {
+		rowHeight = lipgloss.Height(rows[0])
+		if rowHeight < 1 {
+			rowHeight = 1
+		}
+	}
+	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
+
+	displayRows := availableHeight / rowHeight
+	if displayRows < 0 {
+		displayRows = 0
+	}
+
+	visibleRows := []string{}
+	if displayRows > 0 {
+		selectedRow := a.selectedIndex / columns
+		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+		visibleRows = rows[startRow:endRow]
+	}
+
+	bodyLines := append(headerLines, visibleRows...)
+	return composeWithFooter(a.height, bodyLines, help)
 }
 
 func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
@@ -663,61 +706,134 @@ func (a *App) viewDetail() string {
 	if a.loading {
 		refreshText = loadingStyle.Render("刷新中...")
 	}
-	lines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
+	headerLines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
 	if a.errText != "" {
-		lines = append(lines, errStyle.Render("错误: "+a.errText))
+		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
 	}
 	if a.remoteErr != "" {
-		lines = append(lines, errStyle.Render("远端: "+a.remoteErr))
+		headerLines = append(headerLines, errStyle.Render("远端: "+a.remoteErr))
 	}
 
+	var subHelp string
 	switch a.detailTab {
 	case tabPR:
-		lines = append(lines, helpStyle.Render("↑↓: select  d: diff  o: open"))
+		subHelp = helpStyle.Render("↑↓: select  d: diff  o: open")
+	case tabIssue:
+		subHelp = helpStyle.Render("↑↓: select  o: open")
+	}
+
+	// Calculate available height for the list
+	// -1 for subHelp at bottom
+	listHeight := a.height - len(headerLines) - 1
+	if listHeight < 0 {
+		listHeight = 0
+	}
+
+	var listLines []string
+	if a.detailTab == tabPR {
 		if len(a.prList) == 0 {
-			lines = append(lines, "暂无 PR")
+			listLines = append(listLines, "暂无 PR")
 		} else {
-			for i, pr := range a.prList {
+			start, end := calculateScrollWindow(len(a.prList), a.detailPRIdx, listHeight)
+			for i := start; i < end; i++ {
+				pr := a.prList[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
 				authStr := authorStyle.Render(pr.Author)
 				dateStr := dateStyle.Render("updated " + pr.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailPRIdx {
-					lines = append(lines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
 				} else {
-					lines = append(lines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
 				}
 			}
 		}
-	case tabIssue:
-		lines = append(lines, helpStyle.Render("↑↓: select  o: open"))
+	} else {
 		if len(a.issues) == 0 {
-			lines = append(lines, "暂无 Issues")
+			listLines = append(listLines, "暂无 Issues")
 		} else {
-			for i, is := range a.issues {
+			start, end := calculateScrollWindow(len(a.issues), a.detailISIdx, listHeight)
+			for i := start; i < end; i++ {
+				is := a.issues[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
 				dateStr := dateStyle.Render("updated " + is.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailISIdx {
-					lines = append(lines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
+					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
 				} else {
-					lines = append(lines, "  "+numStr+" "+is.Title+"  "+dateStr)
+					listLines = append(listLines, "  "+numStr+" "+is.Title+"  "+dateStr)
 				}
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+
+	res := append(headerLines, listLines...)
+	return composeWithFooter(a.height, res, subHelp)
+}
+
+func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
+	if itemCount <= height {
+		return 0, itemCount
+	}
+	start := selectedIdx - height/2
+	if start < 0 {
+		start = 0
+	}
+	if start+height > itemCount {
+		start = itemCount - height
+	}
+	return start, start + height
 }
 
 func (a *App) viewDiff() string {
 	if a.diffLoading {
 		return loadingStyle.Render("加载 diff 中...")
 	}
-	header := diffHeaderStyle.Render("Diff") + "  " + helpStyle.Render("[q] back  / search  n/p next/prev")
+
+	header := diffHeaderStyle.Render("Diff")
+	help := helpStyle.Render("[q] back  / search  n/p next/prev")
+
+	headerLines := []string{header}
 	if a.searchMode {
-		header += "\n" + searchInfoStyle.Render("搜索: ") + a.searchInput
+		headerLines = append(headerLines, searchInfoStyle.Render("搜索: ")+a.searchInput)
 	} else if a.diffSearch != "" {
-		header += "\n" + searchInfoStyle.Render(fmt.Sprintf("搜索词: %s  命中: %d", a.diffSearch, len(a.matches)))
+		headerLines = append(headerLines, searchInfoStyle.Render(fmt.Sprintf("搜索词: %s  命中: %d", a.diffSearch, len(a.matches))))
 	}
-	return header + "\n" + a.diffViewport.View()
+
+	// 动态调整 viewport 高度
+	// -1 为底部的 help 留出空间
+	vHeight := a.height - len(headerLines) - 1
+	if vHeight < 0 {
+		vHeight = 0
+	}
+	if a.diffViewport.Height != vHeight {
+		a.diffViewport.Height = vHeight
+	}
+
+	bodyLines := append([]string{}, headerLines...)
+	if vHeight > 0 {
+		content := a.diffViewport.View()
+		if content != "" {
+			bodyLines = append(bodyLines, strings.Split(content, "\n")...)
+		}
+	}
+	return composeWithFooter(a.height, bodyLines, help)
+}
+
+func composeWithFooter(height int, bodyLines []string, footer string) string {
+	if height <= 0 {
+		return ""
+	}
+	if height == 1 {
+		return footer
+	}
+
+	maxBodyLines := height - 1
+	if len(bodyLines) > maxBodyLines {
+		bodyLines = bodyLines[:maxBodyLines]
+	}
+
+	lines := append([]string{}, bodyLines...)
+	lines = append(lines, footer)
+	return strings.Join(lines, "\n")
 }
 
 func (a *App) refreshAllCmd() tea.Cmd {
