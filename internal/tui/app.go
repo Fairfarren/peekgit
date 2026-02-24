@@ -485,17 +485,18 @@ func (a *App) View() string {
 func (a *App) viewWorkspaces() string {
 	header := titleStyle.Render("Repo Monitor - Workspaces")
 	help := helpStyle.Render("↑↓←→/h j k l 选择  Space/Enter 进入  q 退出")
+	columns := max(1, a.columns)
 
 	headerLines := []string{header, ""}
 
 	if len(a.workspaces) == 0 {
-		headerLines = append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json", help)
-		return strings.Join(headerLines, "\n")
+		bodyLines := append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
 	rows := make([]string, 0)
-	for i := 0; i < len(a.workspaces); i += a.columns {
-		end := i + a.columns
+	for i := 0; i < len(a.workspaces); i += columns {
+		end := i + columns
 		if end > len(a.workspaces) {
 			end = len(a.workspaces)
 		}
@@ -519,8 +520,13 @@ func (a *App) viewWorkspaces() string {
 	}
 
 	// Calculate how many rows we can display
-	// renderWorkspaceCard is 2 lines + 2 border lines = 4 lines high.
-	rowHeight := 4
+	rowHeight := 1
+	if len(rows) > 0 {
+		rowHeight = lipgloss.Height(rows[0])
+		if rowHeight < 1 {
+			rowHeight = 1
+		}
+	}
 	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
 
 	displayRows := availableHeight / rowHeight
@@ -530,14 +536,14 @@ func (a *App) viewWorkspaces() string {
 
 	visibleRows := []string{}
 	if displayRows > 0 {
-		selectedRow := a.selectedWsIndex / a.columns
+		selectedRow := a.selectedWsIndex / columns
 		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
 		visibleRows = rows[startRow:endRow]
 	}
 
-	lines := append(headerLines, visibleRows...)
-	lines = append(lines, "", help)
-	return strings.Join(lines, "\n")
+	bodyLines := append(headerLines, visibleRows...)
+	bodyLines = append(bodyLines, "")
+	return composeWithFooter(a.height, bodyLines, help)
 }
 
 func (a *App) renderWorkspaceCard(name string, selected bool) string {
@@ -559,6 +565,7 @@ func (a *App) renderWorkspaceCard(name string, selected bool) string {
 
 func (a *App) viewHome() string {
 	wsName := ""
+	columns := max(1, a.columns)
 	if len(a.workspaces) > 0 && a.selectedWsIndex < len(a.workspaces) {
 		wsName = a.workspaces[a.selectedWsIndex]
 	}
@@ -580,19 +587,19 @@ func (a *App) viewHome() string {
 		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
 	}
 	if a.loading {
-		headerLines = append(headerLines, loadingStyle.Render("刷新中..."), "", help)
-		return strings.Join(headerLines, "\n")
+		bodyLines := append(headerLines, loadingStyle.Render("刷新中..."), "")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
 	repos := a.filteredRepos()
 	if len(repos) == 0 {
-		headerLines = append(headerLines, "没有仓库（可调整过滤条件）", help)
-		return strings.Join(headerLines, "\n")
+		bodyLines := append(headerLines, "没有仓库（可调整过滤条件）")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
 	rows := make([]string, 0)
-	for i := 0; i < len(repos); i += a.columns {
-		end := i + a.columns
+	for i := 0; i < len(repos); i += columns {
+		end := i + columns
 		if end > len(repos) {
 			end = len(repos)
 		}
@@ -615,8 +622,13 @@ func (a *App) viewHome() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
 
-	// Each card row is 5 lines high (3 lines content + 2 border lines)
-	rowHeight := 5
+	rowHeight := 1
+	if len(rows) > 0 {
+		rowHeight = lipgloss.Height(rows[0])
+		if rowHeight < 1 {
+			rowHeight = 1
+		}
+	}
 	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
 
 	displayRows := availableHeight / rowHeight
@@ -626,14 +638,13 @@ func (a *App) viewHome() string {
 
 	visibleRows := []string{}
 	if displayRows > 0 {
-		selectedRow := a.selectedIndex / a.columns
+		selectedRow := a.selectedIndex / columns
 		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
 		visibleRows = rows[startRow:endRow]
 	}
 
-	lines := append(headerLines, visibleRows...)
-	lines = append(lines, help)
-	return strings.Join(lines, "\n")
+	bodyLines := append(headerLines, visibleRows...)
+	return composeWithFooter(a.height, bodyLines, help)
 }
 
 func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
@@ -755,8 +766,7 @@ func (a *App) viewDetail() string {
 	}
 
 	res := append(headerLines, listLines...)
-	res = append(res, subHelp)
-	return strings.Join(res, "\n")
+	return composeWithFooter(a.height, res, subHelp)
 }
 
 func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
@@ -798,9 +808,32 @@ func (a *App) viewDiff() string {
 		a.diffViewport.Height = vHeight
 	}
 
-	content := a.diffViewport.View()
-	res := append(headerLines, content, help)
-	return strings.Join(res, "\n")
+	bodyLines := append([]string{}, headerLines...)
+	if vHeight > 0 {
+		content := a.diffViewport.View()
+		if content != "" {
+			bodyLines = append(bodyLines, strings.Split(content, "\n")...)
+		}
+	}
+	return composeWithFooter(a.height, bodyLines, help)
+}
+
+func composeWithFooter(height int, bodyLines []string, footer string) string {
+	if height <= 0 {
+		return ""
+	}
+	if height == 1 {
+		return footer
+	}
+
+	maxBodyLines := height - 1
+	if len(bodyLines) > maxBodyLines {
+		bodyLines = bodyLines[:maxBodyLines]
+	}
+
+	lines := append([]string{}, bodyLines...)
+	lines = append(lines, footer)
+	return strings.Join(lines, "\n")
 }
 
 func (a *App) refreshAllCmd() tea.Cmd {
