@@ -73,6 +73,10 @@ type pullAllDoneMsg struct {
 
 type tickMsg time.Time
 
+type workspaceCheckDoneMsg struct {
+	hasUpdate map[string]bool
+}
+
 type App struct {
 	cfg    config.Config
 	git    *gitcli.CLI
@@ -155,9 +159,12 @@ func New(cfg config.Config) *App {
 }
 
 func (a *App) Init() tea.Cmd {
-	// Run initial workspace update check in background
-	go a.checkWorkspaceUpdates()
-	return tickCmd(a.cfg.IntervalSec)
+	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
+	if len(a.workspaces) > 0 {
+		a.workspaceChecking = true
+		cmds = append(cmds, a.workspaceCheckCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func tickCmd(intervalSec int) tea.Cmd {
@@ -239,12 +246,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.refreshAllCmd()
 
 	case tickMsg:
-		// Check workspace updates in background on every tick
-		go a.checkWorkspaceUpdates()
-		if a.screen == screenHome {
-			return a, tea.Batch(a.refreshAllCmd(), tickCmd(a.cfg.IntervalSec))
+		cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
+		if !a.workspaceChecking && len(a.workspaces) > 0 {
+			a.workspaceChecking = true
+			cmds = append(cmds, a.workspaceCheckCmd())
 		}
-		return a, tickCmd(a.cfg.IntervalSec)
+		if a.screen == screenHome {
+			cmds = append(cmds, a.refreshAllCmd())
+		}
+		return a, tea.Batch(cmds...)
+
+	case workspaceCheckDoneMsg:
+		a.workspaceHasUpdate = m.hasUpdate
+		a.workspaceChecking = false
+		return a, nil
 
 	case tea.KeyMsg:
 		if a.searchMode {
@@ -1026,43 +1041,44 @@ func (a *App) filteredRepos() []model.RepoStatus {
 	return out
 }
 
-// checkWorkspaceUpdates checks if any workspace has repos that need pull from remote.
-// This is a lightweight background check that runs without blocking the UI.
-func (a *App) checkWorkspaceUpdates() {
-	// Prevent overlapping goroutines
-	if a.workspaceChecking {
-		return
+func (a *App) workspaceCheckCmd() tea.Cmd {
+	workspaces := append([]string(nil), a.workspaces...)
+	workspacePaths := make(map[string][]string, len(workspaces))
+	for _, wsName := range workspaces {
+		workspacePaths[wsName] = append([]string(nil), a.cfg.Global.Workspaces[wsName]...)
 	}
-	a.workspaceChecking = true
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
-	for _, wsName := range a.workspaces {
-		paths := a.cfg.Global.Workspaces[wsName]
-		repos, err := workspace.ScanRepos(paths)
-		if err != nil || len(repos) == 0 {
-			a.workspaceHasUpdate[wsName] = false
-			continue
-		}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
-		// Check first repo only for quick check
-		// For performance, we'll check up to 3 repos
-		maxCheck := 3
-		if len(repos) < maxCheck {
-			maxCheck = len(repos)
-		}
-
-		hasUpdate := false
-		for i := 0; i < maxCheck; i++ {
-			repoPath := repos[i].Path
-			if a.git.HasRemoteUpdate(ctx, repoPath) {
-				hasUpdate = true
-				break
+		hasUpdate := make(map[string]bool, len(workspaces))
+		for _, wsName := range workspaces {
+			paths := workspacePaths[wsName]
+			repos, err := workspace.ScanRepos(paths)
+			if err != nil || len(repos) == 0 {
+				hasUpdate[wsName] = false
+				continue
 			}
+
+			// For performance, only sample up to 3 repos per workspace.
+			maxCheck := 3
+			if len(repos) < maxCheck {
+				maxCheck = len(repos)
+			}
+
+			updateFound := false
+			for i := 0; i < maxCheck; i++ {
+				if a.git.HasRemoteUpdate(ctx, repos[i].Path) {
+					updateFound = true
+					break
+				}
+			}
+			hasUpdate[wsName] = updateFound
 		}
-		a.workspaceHasUpdate[wsName] = hasUpdate
+
+		return workspaceCheckDoneMsg{hasUpdate: hasUpdate}
 	}
-	a.workspaceChecking = false
 }
 
 func (a *App) recomputeGrid() {
