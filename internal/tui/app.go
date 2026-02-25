@@ -1033,15 +1033,29 @@ func (a *App) renderFileTree(width, height int) string {
 	}
 
 	// Calculate vertical scroll based on selected line position
+	// Scroll when selection reaches 1/3 of visible height from top
 	if totalLines <= height {
 		a.diffLeftOffset = 0
 	} else {
-		// Keep selected line visible
-		if selectedLineIdx < a.diffLeftOffset {
-			a.diffLeftOffset = selectedLineIdx
-		} else if selectedLineIdx >= a.diffLeftOffset+height {
-			a.diffLeftOffset = selectedLineIdx - height + 1
+		// Calculate threshold at 1/3 of height
+		threshold := height / 3
+		if threshold < 1 {
+			threshold = 1
 		}
+
+		// Scroll up when selection moves above threshold from top
+		if selectedLineIdx < a.diffLeftOffset+threshold {
+			a.diffLeftOffset = selectedLineIdx - threshold
+			if a.diffLeftOffset < 0 {
+				a.diffLeftOffset = 0
+			}
+		}
+
+		// Scroll down when selection moves below threshold from bottom
+		if selectedLineIdx >= a.diffLeftOffset+height-threshold {
+			a.diffLeftOffset = selectedLineIdx - height + threshold + 1
+		}
+
 		// Ensure we don't scroll past the end
 		if a.diffLeftOffset+height > totalLines {
 			a.diffLeftOffset = totalLines - height
