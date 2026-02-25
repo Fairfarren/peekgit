@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -168,22 +167,37 @@ func ParseOwnerRepo(remoteURL string) (string, string, error) {
 
 	if strings.HasPrefix(s, "git@github.com:") {
 		rest := strings.TrimPrefix(s, "git@github.com:")
-		parts := strings.Split(rest, "/")
-		if len(parts) == 2 {
+		parts := splitGitHubPath(rest)
+		if len(parts) >= 2 {
 			return parts[0], parts[1], nil
 		}
 	}
 
 	if strings.HasPrefix(s, "https://github.com/") {
 		rest := strings.TrimPrefix(s, "https://github.com/")
-		rest = filepath.Clean(rest)
-		parts := strings.Split(rest, "/")
+		parts := splitGitHubPath(rest)
 		if len(parts) >= 2 {
 			return parts[0], parts[1], nil
 		}
 	}
 
 	return "", "", errors.New("unsupported remote url")
+}
+
+func splitGitHubPath(path string) []string {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, "/")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && p != "." {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c *CLI) ListBranches(ctx context.Context, repoPath string, dirty bool) ([]model.BranchInfo, error) {
