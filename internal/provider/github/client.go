@@ -88,6 +88,8 @@ func (c *Client) ListPRs(ctx context.Context, owner string, repo string) ([]mode
 			UpdatedAt: pr.GetUpdatedAt().Time,
 			Draft:     pr.GetDraft(),
 			HTMLURL:   pr.GetHTMLURL(),
+			HeadBranch: pr.GetHead().GetRef(),
+			BaseBranch: pr.GetBase().GetRef(),
 		})
 	}
 	c.prCache.Set(cacheKey, out, time.Now())

@@ -53,6 +53,8 @@ type PullRequestItem struct {
 	Number      int
 	Title       string
 	Author      string
+	HeadBranch  string
+	BaseBranch  string
 	UpdatedAt   time.Time
 	Draft       bool
 	HTMLURL     string

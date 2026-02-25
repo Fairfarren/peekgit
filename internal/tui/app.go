@@ -754,11 +754,12 @@ func (a *App) viewDetail() string {
 				pr := a.prList[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
 				authStr := authorStyle.Render(pr.Author)
-				dateStr := dateStyle.Render("updated " + pr.UpdatedAt.Format("2006-01-02"))
+				dateStr := dateStyle.Render(pr.UpdatedAt.Format("2006-01-02"))
+				branchStr := fmt.Sprintf("[%s -> %s]", emptyDash(pr.HeadBranch), emptyDash(pr.BaseBranch))
 				if i == a.detailPRIdx {
-					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+" "+branchStr+"  "+authStr+"  "+dateStr)
 				} else {
-					listLines = append(listLines, "  "+numStr+" "+pr.Title+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, "  "+numStr+" "+pr.Title+" "+branchStr+"  "+authStr+"  "+dateStr)
 				}
 			}
 		}
@@ -770,7 +771,7 @@ func (a *App) viewDetail() string {
 			for i := start; i < end; i++ {
 				is := a.issues[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
-				dateStr := dateStyle.Render("updated " + is.UpdatedAt.Format("2006-01-02"))
+				dateStr := dateStyle.Render(is.UpdatedAt.Format("2006-01-02"))
 				if i == a.detailISIdx {
 					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
 				} else {
