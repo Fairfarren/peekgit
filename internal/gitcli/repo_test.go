@@ -44,6 +44,7 @@ func TestParseOwnerRepo(t *testing.T) {
 	}{
 		{"git@github.com:fair/peek.git", "fair", "peek", true},
 		{"https://github.com/fair/peek.git", "fair", "peek", true},
+		{"https://github.com/fair/peek/", "fair", "peek", true},
 		{"ssh://example.com/a/b", "", "", false},
 	}
 
