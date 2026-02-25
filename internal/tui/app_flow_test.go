@@ -121,21 +121,6 @@ func TestUpdateDetailBackHome(t *testing.T) {
 	}
 }
 
-func TestUpdateDiffSearchControl(t *testing.T) {
-	a := newTestApp()
-	a.screen = screenDiff
-	a.diffContent = "a\nmatch\nb"
-	a.diffViewport.SetContent(a.diffContent)
-	_, _ = a.updateDiff(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	if !a.searchMode {
-		t.Fatalf("expected search mode")
-	}
-	a.searchInput = "match"
-	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyEnter})
-	if a.searchMode {
-		t.Fatalf("search mode should close")
-	}
-}
 
 func TestViewsNotEmpty(t *testing.T) {
 	a := newTestApp()
@@ -199,16 +184,6 @@ func TestUpdateDiffQBackToDetail(t *testing.T) {
 	_, _ = a.updateDiff(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if a.screen != screenDetail {
 		t.Fatalf("expected detail")
-	}
-}
-
-func TestJumpMatchNoMatchSafe(t *testing.T) {
-	a := newTestApp()
-	a.matches = nil
-	a.matchIdx = -1
-	a.jumpMatch(1)
-	if a.matchIdx != -1 {
-		t.Fatalf("matchIdx=%d", a.matchIdx)
 	}
 }
 

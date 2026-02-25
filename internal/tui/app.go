@@ -106,15 +106,21 @@ type App struct {
 	issues      []model.IssueItem
 	remoteErr   string
 
-	diffViewport viewport.Model
-	diffContent  string
-	diffLoading  bool
-	diffSearch   string
-	searchMode   bool
-	searchInput  string
-	matches      []int
-	matchIdx     int
 
+	diffViewport  viewport.Model
+	diffContent   string
+	diffLoading   bool
+	diffSearch    string
+	searchMode    bool
+	searchInput   string
+	matches       []int
+	matchIdx      int
+
+	// Split diff view state
+	diffTree        *DiffTree
+	diffFileIdx     int
+	diffFocusLeft   bool
+	diffLeftOffset  int
 	loading bool
 	errText string
 }
@@ -139,20 +145,24 @@ func New(cfg config.Config) *App {
 	}
 
 	app := &App{
-		cfg:               cfg,
-		git:               gitcli.New(),
-		gh:                ghprovider.New(context.Background(), cfg.NoGitHub),
-		screen:            screenWorkspaces,
-		detailTab:         tabPR,
-		columns:           1,
-		cardWidth:         cardMinWidth,
-		loading:           false, // Not loading initially, wait for enter
-		matchIdx:          -1,
-		remoteErr:         "",
-		searchMode:        false,
-		workspaces:        wsKeys,
-		workspaceCounts:   wsCounts,
+		cfg:                cfg,
+		git:                gitcli.New(),
+		gh:                 ghprovider.New(context.Background(), cfg.NoGitHub),
+		screen:             screenWorkspaces,
+		detailTab:          tabPR,
+		columns:            1,
+		cardWidth:          cardMinWidth,
+		loading:            false, // Not loading initially, wait for enter
+		matchIdx:           -1,
+		remoteErr:          "",
+		searchMode:         false,
+		workspaces:         wsKeys,
+		workspaceCounts:    wsCounts,
 		workspaceHasUpdate: make(map[string]bool),
+		diffTree:           &DiffTree{},
+		diffFileIdx:        0,
+		diffFocusLeft:      true,
+		diffLeftOffset:     0,
 	}
 
 	return app
@@ -217,7 +227,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.errText = ""
 		a.diffContent = m.content
-		a.diffViewport.SetContent(colorizeDiff(m.content))
+		a.diffTree = ParseDiff(m.content)
+		a.diffFileIdx = 0
+		a.diffLeftOffset = 0
+		a.diffFocusLeft = true
+		// Set content for right panel (first file or empty)
+		if len(a.diffTree.Files) > 0 {
+			a.diffViewport.SetContent(colorizeDiff(a.diffTree.Files[0].Content))
+		} else {
+			a.diffViewport.SetContent(colorizeDiff(m.content))
+		}
 		a.setSearch(a.diffSearch)
 		return a, nil
 
@@ -464,26 +483,78 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "q" {
+	key := msg.String()
+
+	// Check if we're in simple mode (small screen)
+	isSimpleMode := a.height < 10 || a.width < 69
+
+	// Global keys
+	switch key {
+	case "q":
 		a.screen = screenDetail
 		return a, nil
-	}
-	if msg.String() == "/" {
-		a.searchMode = true
-		a.searchInput = ""
+	case "tab":
+		// Toggle between panels (only in split mode)
+		if !isSimpleMode {
+			a.diffFocusLeft = !a.diffFocusLeft
+		}
+		return a, nil
+	case "right":
+		// Switch to right panel
+		a.diffFocusLeft = false
+		return a, nil
+	case "left":
+		// Switch to left panel
+		a.diffFocusLeft = true
 		return a, nil
 	}
-	if msg.String() == "n" {
-		a.jumpMatch(1)
-		return a, nil
+
+	// In simple mode, always scroll the diff content
+	if isSimpleMode {
+		var cmd tea.Cmd
+		a.diffViewport, cmd = a.diffViewport.Update(msg)
+		return a, cmd
 	}
-	if msg.String() == "p" {
-		a.jumpMatch(-1)
-		return a, nil
+
+	// Handle panel-specific keys (split mode)
+	if a.diffFocusLeft {
+		// Left panel: file list navigation
+		fileCount := len(a.diffTree.Files)
+		switch key {
+		case "up", "k":
+			if a.diffFileIdx > 0 {
+				a.diffFileIdx--
+				a.updateDiffContent()
+			}
+		case "down", "j":
+			if a.diffFileIdx < fileCount-1 {
+				a.diffFileIdx++
+				a.updateDiffContent()
+			}
+		}
+	} else {
+		// Right panel: diff content scrolling
+		var cmd tea.Cmd
+		a.diffViewport, cmd = a.diffViewport.Update(msg)
+		return a, cmd
 	}
-	var cmd tea.Cmd
-	a.diffViewport, cmd = a.diffViewport.Update(msg)
-	return a, cmd
+
+	return a, nil
+}
+
+// updateDiffContent updates the right panel with the selected file's diff
+func (a *App) updateDiffContent() {
+	if a.diffTree == nil || len(a.diffTree.Files) == 0 {
+		return
+	}
+
+	file := a.diffTree.GetFileByIndex(a.diffFileIdx)
+	if file != nil {
+		a.diffViewport.SetContent(colorizeDiff(file.Content))
+	} else {
+		// Fallback to full diff
+		a.diffViewport.SetContent(colorizeDiff(a.diffContent))
+	}
 }
 
 func (a *App) View() string {
@@ -816,21 +887,112 @@ func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
 
 func (a *App) viewDiff() string {
 	if a.diffLoading {
-		return loadingStyle.Render("加载 diff 中...")
+		return loadingStyle.Render(" 加载 diff 中...")
 	}
 
+	// Handle tiny height - just show help
+	if a.height <= 1 {
+		return helpStyle.Render("[q] back")
+	}
+
+	// For small screens, use single panel layout (no file tree)
+	// Minimum width needed: leftWidth(25) + rightWidth(40) + borders/gap(4) = 69
+	if a.height < 10 || a.width < 69 {
+		return a.viewDiffSimple()
+	}
+
+	// Calculate panel dimensions (3:7 ratio)
+	leftWidth := a.width * 3 / 10
+	if leftWidth < 25 {
+		leftWidth = 25
+	}
+	rightWidth := a.width - leftWidth - 4 // -4 for borders and gap
+	if rightWidth < 40 {
+		rightWidth = 40
+		leftWidth = a.width - rightWidth - 4
+		if leftWidth < 25 {
+			leftWidth = 25
+		}
+	}
+
+	// Calculate content height (account for header, borders, help)
+	contentHeight := a.height - 4 // header(1) + panel borders(2) + help(1)
+	if contentHeight < 3 {
+		contentHeight = 3
+	}
+
+	// Update viewport dimensions
+	a.diffViewport.Width = max(20, rightWidth-2)
+	a.diffViewport.Height = contentHeight
+
+	// Get current file info for right panel title
+	currentFile := ""
+	if a.diffTree != nil && a.diffFileIdx >= 0 && a.diffFileIdx < len(a.diffTree.Files) {
+		currentFile = a.diffTree.Files[a.diffFileIdx].Path
+	}
+
+	// Build left panel (file tree)
+	leftTitle := dirStyle.Render(" Files ")
+	leftContent := a.renderFileTree(leftWidth-2, contentHeight-1) // -1 for title
+	leftBorder := panelBorderBlur
+	if a.diffFocusLeft {
+		leftBorder = panelBorderFocus
+	}
+	leftPanel := lipgloss.NewStyle().
+		Width(leftWidth).
+		Height(contentHeight).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(leftBorder).
+		Render(leftTitle + "\n" + leftContent)
+
+	// Build right panel (diff content)
+	rightTitle := " Diff "
+	if currentFile != "" {
+		// Truncate filename if too long
+		displayName := currentFile
+		if len(displayName) > rightWidth-10 {
+			displayName = "..." + displayName[len(displayName)-(rightWidth-13):]
+		}
+		rightTitle = diffMetaStyle.Render(" " + displayName + " ")
+	}
+	rightBorder := panelBorderBlur
+	if !a.diffFocusLeft {
+		rightBorder = panelBorderFocus
+	}
+	rightPanel := lipgloss.NewStyle().
+		Width(rightWidth).
+		Height(contentHeight).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(rightBorder).
+		Render(rightTitle + "\n" + a.diffViewport.View())
+
+	// Combine panels with gap
+	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+
+	// Build help text with panel indicator
+	panelHint := "[Files]"
+	if !a.diffFocusLeft {
+		panelHint = "[Diff]"
+	}
+	fileCount := 0
+	if a.diffTree != nil {
+		fileCount = len(a.diffTree.Files)
+	}
+	help := helpStyle.Render(fmt.Sprintf("%s %s  ↑↓选择  ←→切换面板  [q]退出  [%d files]",
+		panelHint, cursorStyle.Render("●"), fileCount))
+	lines := []string{"", panels, help}
+
+	return strings.Join(lines, "\n")
+}
+
+// viewDiffSimple renders a simple single-panel diff view for small screens
+func (a *App) viewDiffSimple() string {
 	header := diffHeaderStyle.Render("Diff")
-	help := helpStyle.Render("[q] back  / search  n/p next/prev")
+	help := helpStyle.Render("[q] back")
 
 	headerLines := []string{header}
-	if a.searchMode {
-		headerLines = append(headerLines, searchInfoStyle.Render("搜索: ")+a.searchInput)
-	} else if a.diffSearch != "" {
-		headerLines = append(headerLines, searchInfoStyle.Render(fmt.Sprintf("搜索词: %s  命中: %d", a.diffSearch, len(a.matches))))
-	}
 
 	// 动态调整 viewport 高度
-	// -1 为底部的 help 留出空间
 	vHeight := a.height - len(headerLines) - 1
 	if vHeight < 0 {
 		vHeight = 0
@@ -847,6 +1009,186 @@ func (a *App) viewDiff() string {
 		}
 	}
 	return composeWithFooter(a.height, bodyLines, help)
+}
+
+// renderFileTree renders the file tree for the left panel with tree structure
+func (a *App) renderFileTree(width, height int) string {
+	if a.diffTree == nil || a.diffTree.Tree == nil || len(a.diffTree.Files) == 0 {
+		return labelDimStyle.Render(" 无文件变更")
+	}
+
+	// Build tree lines with file index tracking
+	var treeLines []treeLine
+	fileCounter := 0
+	a.buildTreeLines(a.diffTree.Tree, 0, &treeLines, &fileCounter)
+	totalLines := len(treeLines)
+
+	// Find the actual line index of the selected file in tree
+	selectedLineIdx := 0
+	for i, tl := range treeLines {
+		if !tl.isDir && tl.fileIndex == a.diffFileIdx {
+			selectedLineIdx = i
+			break
+		}
+	}
+
+	// Calculate vertical scroll based on selected line position
+	if totalLines <= height {
+		a.diffLeftOffset = 0
+	} else {
+		// Keep selected line visible
+		if selectedLineIdx < a.diffLeftOffset {
+			a.diffLeftOffset = selectedLineIdx
+		} else if selectedLineIdx >= a.diffLeftOffset+height {
+			a.diffLeftOffset = selectedLineIdx - height + 1
+		}
+		// Ensure we don't scroll past the end
+		if a.diffLeftOffset+height > totalLines {
+			a.diffLeftOffset = totalLines - height
+		}
+		if a.diffLeftOffset < 0 {
+			a.diffLeftOffset = 0
+		}
+	}
+
+	// Get visible range
+	end := a.diffLeftOffset + height
+	if end > totalLines {
+		end = totalLines
+	}
+
+	var lines []string
+	for i := a.diffLeftOffset; i < end; i++ {
+		tl := treeLines[i]
+		line := a.renderTreeLine(tl, width)
+		lines = append(lines, line)
+	}
+
+	// Pad with empty lines if needed
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// treeLine represents a line in the file tree
+type treeLine struct {
+	indent    int
+	name      string
+	isDir     bool
+	file      *FileDiff
+	fileIndex int // -1 for directories
+}
+
+// buildTreeLines recursively builds flat list of tree lines
+func (a *App) buildTreeLines(node *DiffNode, indent int, lines *[]treeLine, fileCounter *int) {
+	if node == nil {
+		return
+	}
+
+	if node.IsDir {
+		*lines = append(*lines, treeLine{
+			indent: indent,
+			name:   node.Name,
+			isDir:  true,
+		})
+		for _, child := range node.Children {
+			a.buildTreeLines(child, indent+1, lines, fileCounter)
+		}
+	} else if node.File != nil {
+		idx := *fileCounter
+		*lines = append(*lines, treeLine{
+			indent:    indent,
+			name:      node.Name,
+			isDir:     false,
+			file:      node.File,
+			fileIndex: idx,
+		})
+		*fileCounter++
+	}
+}
+
+// renderTreeLine renders a single tree line
+func (a *App) renderTreeLine(tl treeLine, width int) string {
+	indentStr := strings.Repeat("  ", tl.indent)
+
+	if tl.isDir {
+		// Directory line - build plain text first
+		plainText := indentStr + "📂 " + tl.name + "/"
+		// Truncate plain text if too long
+		if lipgloss.Width(plainText) > width {
+			// Truncate name to fit
+			maxNameLen := width - len(indentStr) - 4 // 4 for "📂 " and "/"
+			if maxNameLen > 0 && len(tl.name) > maxNameLen {
+				plainText = indentStr + "📂 " + tl.name[:maxNameLen-1] + "…/"
+			}
+		}
+		return dirStyle.Render(plainText)
+	}
+
+	// File line
+	isSelected := (tl.fileIndex == a.diffFileIdx)
+	f := tl.file
+
+	// Status indicator
+	var statusSquare string
+	switch {
+	case f.IsNew:
+		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FD97F")).Render("■")
+	case f.IsDelete:
+		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Render("■")
+	case f.OldPath != "" && f.OldPath != f.Path:
+		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Render("■")
+	default:
+		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Render("■")
+	}
+
+	// Format stats
+	statsStr := ""
+	if f.AddLines > 0 || f.DelLines > 0 {
+		statsStr = fmt.Sprintf(" (+%d/-%d)", f.AddLines, f.DelLines)
+	}
+
+	// Build plain text content for width calculation
+	plainText := indentStr + "  ■ " + tl.name + statsStr
+	
+	// Truncate filename if plain text is too long
+	if lipgloss.Width(plainText) > width {
+		availableForName := width - len(indentStr) - 4 - lipgloss.Width(statsStr)
+		if availableForName > 3 && len(tl.name) > availableForName {
+			// Truncate name and add ellipsis
+			truncatedName := tl.name[:availableForName-1] + "…"
+			plainText = indentStr + "  ■ " + truncatedName + statsStr
+		} else if availableForName > 0 {
+			plainText = plainText[:width]
+		}
+	}
+
+	// Build styled line
+	line := indentStr + "  " + statusSquare + " " + tl.name
+	if statsStr != "" {
+		line += labelDimStyle.Render(statsStr)
+	}
+	
+	// Re-apply truncation to styled line if needed
+	if lipgloss.Width(line) > width {
+		availableForName := width - lipgloss.Width(indentStr+"  ") - lipgloss.Width(statsStr) - lipgloss.Width("■ ")
+		if availableForName > 3 && len(tl.name) > availableForName {
+			truncatedName := tl.name[:availableForName-1] + "…"
+			line = indentStr + "  " + statusSquare + " " + truncatedName + labelDimStyle.Render(statsStr)
+		}
+	}
+
+	// Apply selection style
+	if isSelected {
+		line = lipgloss.NewStyle().
+			Background(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#1A5CCC"}).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Render(line)
+	}
+
+	return line
 }
 
 func composeWithFooter(height int, bodyLines []string, footer string) string {

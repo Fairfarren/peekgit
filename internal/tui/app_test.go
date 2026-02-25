@@ -30,21 +30,6 @@ func TestRecomputeGrid(t *testing.T) {
 	}
 }
 
-func TestSearchMatchAndJump(t *testing.T) {
-	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
-	a.diffContent = "a\nmatch\nline\nmatch"
-	a.diffViewport.SetContent(a.diffContent)
-	a.setSearch("match")
-	if len(a.matches) != 2 {
-		t.Fatalf("matches=%d", len(a.matches))
-	}
-	idx := a.matchIdx
-	a.jumpMatch(1)
-	if a.matchIdx == idx {
-		t.Fatalf("expected index changed")
-	}
-}
-
 func TestEmptyDash(t *testing.T) {
 	if emptyDash("") != "—" {
 		t.Fatalf("expected dash")
