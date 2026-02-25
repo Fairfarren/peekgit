@@ -470,14 +470,19 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// Check if we're in simple mode (small screen)
+	isSimpleMode := a.height < 10 || a.width < 69
+
 	// Global keys
 	switch key {
 	case "q":
 		a.screen = screenDetail
 		return a, nil
 	case "tab":
-		// Toggle between panels
-		a.diffFocusLeft = !a.diffFocusLeft
+		// Toggle between panels (only in split mode)
+		if !isSimpleMode {
+			a.diffFocusLeft = !a.diffFocusLeft
+		}
 		return a, nil
 	case "right":
 		// Switch to right panel
@@ -489,7 +494,14 @@ func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Handle panel-specific keys
+	// In simple mode, always scroll the diff content
+	if isSimpleMode {
+		var cmd tea.Cmd
+		a.diffViewport, cmd = a.diffViewport.Update(msg)
+		return a, cmd
+	}
+
+	// Handle panel-specific keys (split mode)
 	if a.diffFocusLeft {
 		// Left panel: file list navigation
 		fileCount := len(a.diffTree.Files)
@@ -865,11 +877,12 @@ func (a *App) viewDiff() string {
 
 	// Handle tiny height - just show help
 	if a.height <= 1 {
-		return helpStyle.Render("[q] back  [/] search  [n/p] next/prev")
+		return helpStyle.Render("[q] back")
 	}
 
 	// For small screens, use single panel layout (no file tree)
-	if a.height < 10 || a.width < 60 {
+	// Minimum width needed: leftWidth(25) + rightWidth(40) + borders/gap(4) = 69
+	if a.height < 10 || a.width < 69 {
 		return a.viewDiffSimple()
 	}
 

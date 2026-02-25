@@ -120,19 +120,37 @@ func parseDiffFiles(raw string) []FileDiff {
 // parseDiffHeader extracts file path from "diff --git a/path b/path"
 func parseDiffHeader(line string) *FileDiff {
 	// Format: "diff --git a/path/to/file b/path/to/file"
-	parts := strings.SplitN(line, " ", 4)
-	if len(parts) < 4 {
+	// Note: paths can contain spaces, so we can't simply split by space
+	// We look for "a/" and " b/" patterns to extract paths
+
+	prefix := "diff --git "
+	if !strings.HasPrefix(line, prefix) {
 		return &FileDiff{Path: "unknown"}
 	}
 
-	// Extract path from "a/path" and "b/path"
-	aPath := strings.TrimPrefix(parts[2], "a/")
-	bPath := strings.TrimPrefix(parts[3], "b/")
+	rest := line[len(prefix):]
+
+	// Find "a/" prefix for old path
+	aIdx := strings.Index(rest, "a/")
+	if aIdx == -1 {
+		return &FileDiff{Path: "unknown"}
+	}
+
+	// Find " b/" pattern for new path (space before b/)
+	bIdx := strings.Index(rest, " b/")
+	if bIdx == -1 {
+		// Only one path found, use it
+		path := rest[aIdx+2:]
+		return &FileDiff{Path: path, OldPath: path, NewPath: path}
+	}
+
+	aPath := rest[aIdx+2 : bIdx]
+	bPath := rest[bIdx+2:]
 
 	// Use b/path as the main path (shows the destination)
 	path := bPath
 	if path == "" || path == "/dev/null" {
-		path = strings.TrimPrefix(parts[2], "a/")
+		path = aPath
 	}
 
 	return &FileDiff{
