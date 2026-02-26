@@ -6,6 +6,7 @@ import (
 
 	"github.com/Fairfarren/peekgit/internal/config"
 	"github.com/Fairfarren/peekgit/internal/model"
+	"github.com/Fairfarren/peekgit/internal/workspace"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -428,5 +429,54 @@ func TestWorkspaceCheckCmdStartsOnlyIdleWorkspaceChecks(t *testing.T) {
 	}
 	if !a.workspaceChecking["ws-b"] {
 		t.Fatalf("expected ws-b checking state to become true")
+	}
+}
+
+func TestRefreshAllCmdClearsReposWhenWorkspaceSwitched(t *testing.T) {
+	a := New(config.Config{
+		Global: config.GlobalConfig{Workspaces: map[string][]string{
+			"ws-a": {"/tmp"},
+			"ws-b": {"/tmp"},
+		}},
+		IntervalSec: 300,
+		Concurrency: 1,
+		NoGitHub:    true,
+	})
+
+	a.reposWorkspace = "ws-a"
+	a.repos = []model.RepoStatus{{Name: "old", Path: "/tmp/old", Sync: model.SyncSynced}}
+	a.selectedWsIndex = 1
+
+	cmd := a.refreshAllCmd()
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command")
+	}
+	if len(a.repos) != 0 {
+		t.Fatalf("expected stale repos to be cleared when switching workspace")
+	}
+}
+
+func TestRefreshDoneMsgDeduplicatesReposByPath(t *testing.T) {
+	a := newTestApp()
+	a.refreshSeq = 5
+	a.repos = nil
+
+	_, cmd := a.Update(refreshDoneMsg{
+		seq: 5,
+		repos: []workspace.RepoDir{
+			{Name: "repo-1", Path: "/tmp/repo-1"},
+			{Name: "repo-1-dup", Path: "/tmp/repo-1"},
+		},
+	})
+
+	if cmd == nil {
+		t.Fatalf("expected follow-up refresh commands")
+	}
+	if len(a.repos) != 1 {
+		t.Fatalf("expected duplicate paths to be deduplicated, got %d", len(a.repos))
+	}
+	if a.repoRefreshPending != 1 {
+		t.Fatalf("expected pending count to match deduplicated repos, got %d", a.repoRefreshPending)
 	}
 }

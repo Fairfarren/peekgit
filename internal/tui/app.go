@@ -98,6 +98,7 @@ type App struct {
 	refreshSeq    int
 
 	workspaces         []string
+	reposWorkspace     string
 	workspaceCounts    map[string]int
 	workspaceHasUpdate map[string]bool
 	workspaceChecking  map[string]bool
@@ -226,13 +227,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		a.errText = ""
+		repoDirs := dedupeRepoDirsByPath(m.repos)
 		existing := make(map[string]model.RepoStatus, len(a.repos))
 		for _, repo := range a.repos {
 			existing[repo.Path] = repo
 		}
 
-		nextRepos := make([]model.RepoStatus, 0, len(m.repos))
-		for _, repo := range m.repos {
+		nextRepos := make([]model.RepoStatus, 0, len(repoDirs))
+		for _, repo := range repoDirs {
 			if prev, ok := existing[repo.Path]; ok {
 				prev.Name = repo.Name
 				prev.Path = repo.Path
@@ -1300,16 +1302,22 @@ func (a *App) refreshAllCmd() tea.Cmd {
 	a.refreshSeq++
 	seq := a.refreshSeq
 	a.loading = true
+	a.repoRefreshing = make(map[string]bool)
+	a.repoRefreshPending = 0
 
 	if len(a.workspaces) == 0 || a.selectedWsIndex >= len(a.workspaces) {
 		a.repos = []model.RepoStatus{}
-		a.repoRefreshing = make(map[string]bool)
-		a.repoRefreshPending = 0
+		a.reposWorkspace = ""
 		a.loading = false
 		return nil
 	}
 
 	wsName := a.workspaces[a.selectedWsIndex]
+	if wsName != a.reposWorkspace {
+		a.repos = []model.RepoStatus{}
+		a.selectedIndex = 0
+	}
+	a.reposWorkspace = wsName
 	paths := append([]string(nil), a.cfg.Global.Workspaces[wsName]...)
 
 	return func() tea.Msg {
@@ -1356,6 +1364,19 @@ func (a *App) updateRepoStatus(status model.RepoStatus) {
 		a.repos[i] = status
 		return
 	}
+}
+
+func dedupeRepoDirsByPath(repos []workspace.RepoDir) []workspace.RepoDir {
+	seen := make(map[string]struct{}, len(repos))
+	out := make([]workspace.RepoDir, 0, len(repos))
+	for _, repo := range repos {
+		if _, ok := seen[repo.Path]; ok {
+			continue
+		}
+		seen[repo.Path] = struct{}{}
+		out = append(out, repo)
+	}
+	return out
 }
 
 func (a *App) loadRemoteCmd(repo model.RepoStatus) tea.Cmd {
