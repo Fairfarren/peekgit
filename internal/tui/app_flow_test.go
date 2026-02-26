@@ -6,6 +6,7 @@ import (
 
 	"github.com/Fairfarren/peekgit/internal/config"
 	"github.com/Fairfarren/peekgit/internal/model"
+	"github.com/Fairfarren/peekgit/internal/workspace"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -121,7 +122,6 @@ func TestUpdateDetailBackHome(t *testing.T) {
 	}
 }
 
-
 func TestViewsNotEmpty(t *testing.T) {
 	a := newTestApp()
 	if a.viewHome() == "" {
@@ -209,15 +209,51 @@ func TestRemoteLoadedMsgUpdatesRepoCounters(t *testing.T) {
 	}
 }
 
-func TestViewHomeLoadingHidesCards(t *testing.T) {
+func TestViewHomeLoadingKeepsExistingCardsVisible(t *testing.T) {
 	a := newTestApp()
 	a.loading = true
 	view := a.viewHome()
 	if !strings.Contains(view, "刷新中...") {
 		t.Fatalf("expected loading text")
 	}
-	if strings.Contains(view, "repo-a") {
-		t.Fatalf("expected cards to be hidden when loading")
+	if !strings.Contains(view, "repo-a") {
+		t.Fatalf("expected existing cards to remain visible when loading")
+	}
+}
+
+func TestRepoRefreshDoneMsgUpdatesOnlyTargetRepo(t *testing.T) {
+	a := newTestApp()
+	a.refreshSeq = 3
+	a.repoRefreshing["/tmp/repo-a"] = true
+	a.repoRefreshing["/tmp/repo-b"] = true
+	a.repoRefreshPending = 2
+	a.loading = true
+
+	_, _ = a.Update(repoRefreshDoneMsg{
+		seq: 3,
+		status: model.RepoStatus{
+			Name:   "repo-a",
+			Path:   "/tmp/repo-a",
+			Branch: "main",
+			Sync:   model.SyncBehind,
+			Behind: 2,
+		},
+	})
+
+	if a.repos[0].Sync != model.SyncBehind || a.repos[0].Behind != 2 {
+		t.Fatalf("expected repo-a to be updated independently")
+	}
+	if a.repos[1].Sync != model.SyncAhead || a.repos[1].Ahead != 2 {
+		t.Fatalf("expected repo-b to keep previous state")
+	}
+	if a.repoRefreshing["/tmp/repo-a"] {
+		t.Fatalf("expected repo-a refreshing state to be false")
+	}
+	if !a.repoRefreshing["/tmp/repo-b"] {
+		t.Fatalf("expected repo-b refreshing state to stay true")
+	}
+	if !a.loading {
+		t.Fatalf("expected loading to stay true while pending repos exist")
 	}
 }
 
@@ -342,4 +378,105 @@ func TestViewHomeAndWorkspacesSafeWhenColumnsZero(t *testing.T) {
 
 	_ = a.viewHome()
 	_ = a.viewWorkspaces()
+}
+
+func TestWorkspaceCheckDoneMsgOnlyUpdatesTargetWorkspace(t *testing.T) {
+	a := New(config.Config{
+		Global:      config.GlobalConfig{Workspaces: map[string][]string{"ws-a": {"/tmp"}, "ws-b": {"/tmp"}}},
+		IntervalSec: 300,
+		Concurrency: 1,
+		NoGitHub:    true,
+	})
+
+	a.workspaceHasUpdate["ws-a"] = false
+	a.workspaceHasUpdate["ws-b"] = true
+	a.workspaceChecking["ws-a"] = true
+	a.workspaceChecking["ws-b"] = true
+
+	_, _ = a.Update(workspaceCheckDoneMsg{workspace: "ws-a", hasUpdate: true})
+
+	if !a.workspaceHasUpdate["ws-a"] {
+		t.Fatalf("expected ws-a update flag to be true")
+	}
+	if !a.workspaceHasUpdate["ws-b"] {
+		t.Fatalf("expected ws-b update flag to remain true")
+	}
+	if a.workspaceChecking["ws-a"] {
+		t.Fatalf("expected ws-a checking to be false after completion")
+	}
+	if !a.workspaceChecking["ws-b"] {
+		t.Fatalf("expected ws-b checking state to remain unchanged")
+	}
+}
+
+func TestWorkspaceCheckCmdStartsOnlyIdleWorkspaceChecks(t *testing.T) {
+	a := New(config.Config{
+		Global:      config.GlobalConfig{Workspaces: map[string][]string{"ws-a": {"/tmp"}, "ws-b": {"/tmp"}}},
+		IntervalSec: 300,
+		Concurrency: 1,
+		NoGitHub:    true,
+	})
+
+	a.workspaceChecking["ws-a"] = true
+	a.workspaceChecking["ws-b"] = false
+
+	cmd := a.workspaceCheckCmd()
+	if cmd == nil {
+		t.Fatalf("expected command to start checks for idle workspaces")
+	}
+	if !a.workspaceChecking["ws-a"] {
+		t.Fatalf("expected ws-a checking state to remain true")
+	}
+	if !a.workspaceChecking["ws-b"] {
+		t.Fatalf("expected ws-b checking state to become true")
+	}
+}
+
+func TestRefreshAllCmdClearsReposWhenWorkspaceSwitched(t *testing.T) {
+	a := New(config.Config{
+		Global: config.GlobalConfig{Workspaces: map[string][]string{
+			"ws-a": {"/tmp"},
+			"ws-b": {"/tmp"},
+		}},
+		IntervalSec: 300,
+		Concurrency: 1,
+		NoGitHub:    true,
+	})
+
+	a.reposWorkspace = "ws-a"
+	a.repos = []model.RepoStatus{{Name: "old", Path: "/tmp/old", Sync: model.SyncSynced}}
+	a.selectedWsIndex = 1
+
+	cmd := a.refreshAllCmd()
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command")
+	}
+	if len(a.repos) != 0 {
+		t.Fatalf("expected stale repos to be cleared when switching workspace")
+	}
+}
+
+func TestRefreshDoneMsgDeduplicatesReposByPath(t *testing.T) {
+	a := newTestApp()
+	a.refreshSeq = 5
+	a.repos = nil
+
+	_, cmd := a.Update(refreshDoneMsg{
+		seq: 5,
+		repos: []workspace.RepoDir{
+			{Name: "repo-1", Path: "/tmp/repo-1"},
+			{Name: "repo-1-dup", Path: "/tmp/repo-1"},
+		},
+	})
+
+	if cmd == nil {
+		t.Fatalf("expected follow-up refresh commands")
+	}
+	if len(a.repos) != 1 {
+		t.Fatalf("expected duplicate paths to be deduplicated, got %d", len(a.repos))
+	}
+	if a.repoRefreshPending != 1 {
+		t.Fatalf("expected pending count to match deduplicated repos, got %d", a.repoRefreshPending)
+	}
 }

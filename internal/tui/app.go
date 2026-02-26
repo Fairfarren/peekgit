@@ -42,8 +42,14 @@ const (
 )
 
 type refreshDoneMsg struct {
-	repos []model.RepoStatus
+	seq   int
+	repos []workspace.RepoDir
 	err   error
+}
+
+type repoRefreshDoneMsg struct {
+	seq    int
+	status model.RepoStatus
 }
 
 type remoteLoadedMsg struct {
@@ -74,7 +80,8 @@ type pullAllDoneMsg struct {
 type tickMsg time.Time
 
 type workspaceCheckDoneMsg struct {
-	hasUpdate map[string]bool
+	workspace string
+	hasUpdate bool
 }
 
 type App struct {
@@ -88,12 +95,16 @@ type App struct {
 	selectedIndex int
 	columns       int
 	cardWidth     int
+	refreshSeq    int
 
-	workspaces      []string
-	workspaceCounts   map[string]int
+	workspaces         []string
+	reposWorkspace     string
+	workspaceCounts    map[string]int
 	workspaceHasUpdate map[string]bool
-	workspaceChecking bool
-	selectedWsIndex int
+	workspaceChecking  map[string]bool
+	selectedWsIndex    int
+	repoRefreshing     map[string]bool
+	repoRefreshPending int
 
 	filterMode bool
 	filterText string
@@ -106,23 +117,23 @@ type App struct {
 	issues      []model.IssueItem
 	remoteErr   string
 
-
-	diffViewport  viewport.Model
-	diffContent   string
-	diffLoading   bool
-	diffSearch    string
-	searchMode    bool
-	searchInput   string
-	matches       []int
-	matchIdx      int
+	diffViewport viewport.Model
+	diffContent  string
+	diffLoading  bool
+	diffSearch   string
+	searchMode   bool
+	searchInput  string
+	matches      []int
+	matchIdx     int
 
 	// Split diff view state
-	diffTree        *DiffTree
-	diffFileIdx     int
-	diffFocusLeft   bool
-	diffLeftOffset  int
-	loading bool
-	errText string
+	diffTree       *DiffTree
+	diffFileIdx    int
+	diffFocusLeft  bool
+	diffLeftOffset int
+	loading        bool
+	errText        string
+	refreshLimiter chan struct{}
 }
 
 func New(cfg config.Config) *App {
@@ -159,11 +170,19 @@ func New(cfg config.Config) *App {
 		workspaces:         wsKeys,
 		workspaceCounts:    wsCounts,
 		workspaceHasUpdate: make(map[string]bool),
+		workspaceChecking:  make(map[string]bool),
+		repoRefreshing:     make(map[string]bool),
 		diffTree:           &DiffTree{},
 		diffFileIdx:        0,
 		diffFocusLeft:      true,
 		diffLeftOffset:     0,
 	}
+
+	limiterSize := cfg.Concurrency
+	if limiterSize < 1 {
+		limiterSize = 1
+	}
+	app.refreshLimiter = make(chan struct{}, limiterSize)
 
 	return app
 }
@@ -171,7 +190,6 @@ func New(cfg config.Config) *App {
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
 	if len(a.workspaces) > 0 {
-		a.workspaceChecking = true
 		cmds = append(cmds, a.workspaceCheckCmd())
 	}
 	return tea.Batch(cmds...)
@@ -194,19 +212,75 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case refreshDoneMsg:
-		a.loading = false
 		if m.err != nil {
+			if m.seq != a.refreshSeq {
+				return a, nil
+			}
+			a.loading = false
+			a.repoRefreshPending = 0
+			a.repoRefreshing = make(map[string]bool)
 			a.errText = m.err.Error()
 			return a, nil
 		}
+		if m.seq != a.refreshSeq {
+			return a, nil
+		}
+
 		a.errText = ""
-		a.repos = m.repos
+		repoDirs := dedupeRepoDirsByPath(m.repos)
+		existing := make(map[string]model.RepoStatus, len(a.repos))
+		for _, repo := range a.repos {
+			existing[repo.Path] = repo
+		}
+
+		nextRepos := make([]model.RepoStatus, 0, len(repoDirs))
+		for _, repo := range repoDirs {
+			if prev, ok := existing[repo.Path]; ok {
+				prev.Name = repo.Name
+				prev.Path = repo.Path
+				nextRepos = append(nextRepos, prev)
+				continue
+			}
+			nextRepos = append(nextRepos, model.RepoStatus{Name: repo.Name, Path: repo.Path, Sync: model.SyncUnknown})
+		}
+		sort.Slice(nextRepos, func(i int, j int) bool { return nextRepos[i].Name < nextRepos[j].Name })
+		a.repos = nextRepos
+
+		a.repoRefreshing = make(map[string]bool, len(a.repos))
+		a.repoRefreshPending = 0
+		cmds := make([]tea.Cmd, 0, len(a.repos))
+		for _, repo := range a.repos {
+			a.repoRefreshing[repo.Path] = true
+			a.repoRefreshPending++
+			cmds = append(cmds, a.refreshRepoCmd(m.seq, repo.Name, repo.Path))
+		}
+		a.loading = a.repoRefreshPending > 0
+
 		if len(a.repos) == 0 {
 			a.selectedIndex = 0
 		} else if a.selectedIndex >= len(a.repos) {
 			a.selectedIndex = len(a.repos) - 1
 		}
 		a.recomputeGrid()
+		if len(cmds) == 0 {
+			return a, nil
+		}
+		return a, tea.Batch(cmds...)
+
+	case repoRefreshDoneMsg:
+		if m.seq != a.refreshSeq {
+			return a, nil
+		}
+		a.updateRepoStatus(m.status)
+		if a.repoRefreshing[m.status.Path] {
+			a.repoRefreshing[m.status.Path] = false
+			if a.repoRefreshPending > 0 {
+				a.repoRefreshPending--
+			}
+		}
+		if a.repoRefreshPending == 0 {
+			a.loading = false
+		}
 		return a, nil
 
 	case remoteLoadedMsg:
@@ -266,18 +340,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
-		if !a.workspaceChecking && len(a.workspaces) > 0 {
-			a.workspaceChecking = true
+		if len(a.workspaces) > 0 {
 			cmds = append(cmds, a.workspaceCheckCmd())
 		}
-		if a.screen == screenHome {
+		if a.screen == screenHome && !a.loading {
 			cmds = append(cmds, a.refreshAllCmd())
 		}
 		return a, tea.Batch(cmds...)
 
 	case workspaceCheckDoneMsg:
-		a.workspaceHasUpdate = m.hasUpdate
-		a.workspaceChecking = false
+		a.workspaceHasUpdate[m.workspace] = m.hasUpdate
+		a.workspaceChecking[m.workspace] = false
 		return a, nil
 
 	case tea.KeyMsg:
@@ -322,7 +395,6 @@ func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "right")
 	case " ", "enter":
 		a.screen = screenHome
-		a.loading = true
 		a.selectedIndex = 0
 		return a, a.refreshAllCmd()
 	}
@@ -396,7 +468,6 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return a, tea.Quit
 	case "r":
-		a.loading = true
 		return a, a.refreshAllCmd()
 	case "/":
 		a.filterMode = true
@@ -418,12 +489,10 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.loadRemoteCmd(visible[a.selectedIndex])
 	case "f":
 		if len(visible) > 0 {
-			a.loading = true
 			return a, a.pullCurrentCmd()
 		}
 	case "F":
 		if len(a.repos) > 0 {
-			a.loading = true
 			return a, a.pullAllCmd()
 		}
 	case "g":
@@ -655,7 +724,7 @@ func (a *App) renderWorkspaceCard(name string, selected bool) string {
 
 	// Show checking status or update indicator
 	var indicator string
-	if a.workspaceChecking {
+	if a.workspaceChecking[name] {
 		indicator = " " + loadingStyle.Render("↻")
 	} else if a.workspaceHasUpdate[name] {
 		indicator = " " + dirtyStyle.Render("↓")
@@ -687,12 +756,15 @@ func (a *App) viewHome() string {
 	if a.errText != "" {
 		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
 	}
+	repos := a.filteredRepos()
 	if a.loading {
+		headerLines = append(headerLines, loadingStyle.Render("刷新中..."))
+	}
+	if a.loading && len(repos) == 0 {
 		bodyLines := append(headerLines, loadingStyle.Render("刷新中..."), "")
 		return composeWithFooter(a.height, bodyLines, help)
 	}
 
-	repos := a.filteredRepos()
 	if len(repos) == 0 {
 		bodyLines := append(headerLines, "没有仓库（可调整过滤条件）")
 		return composeWithFooter(a.height, bodyLines, help)
@@ -780,6 +852,9 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 	}
 
 	line1 := nameStr + dirtyStr
+	if a.repoRefreshing[repo.Path] {
+		line1 += " " + loadingStyle.Render("↻")
+	}
 	line2 := labelDimStyle.Render("branch: ") + repo.Branch + "  " + syncStr
 	line3 := prLabelStyle.Render("PR ") + pr + "  " +
 		issueLabelStyle.Render("Issues ") + issue + errMark
@@ -1166,7 +1241,7 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 
 	// Build plain text content for width calculation
 	plainText := indentStr + "  ■ " + tl.name + statsStr
-	
+
 	// Truncate filename if plain text is too long
 	if lipgloss.Width(plainText) > width {
 		availableForName := width - len(indentStr) - 4 - lipgloss.Width(statsStr)
@@ -1184,7 +1259,7 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 	if statsStr != "" {
 		line += labelDimStyle.Render(statsStr)
 	}
-	
+
 	// Re-apply truncation to styled line if needed
 	if lipgloss.Width(line) > width {
 		availableForName := width - lipgloss.Width(indentStr+"  ") - lipgloss.Width(statsStr) - lipgloss.Width("■ ")
@@ -1224,56 +1299,84 @@ func composeWithFooter(height int, bodyLines []string, footer string) string {
 }
 
 func (a *App) refreshAllCmd() tea.Cmd {
+	a.refreshSeq++
+	seq := a.refreshSeq
+	a.loading = true
+	a.repoRefreshing = make(map[string]bool)
+	a.repoRefreshPending = 0
+
+	if len(a.workspaces) == 0 || a.selectedWsIndex >= len(a.workspaces) {
+		a.repos = []model.RepoStatus{}
+		a.reposWorkspace = ""
+		a.loading = false
+		return nil
+	}
+
+	wsName := a.workspaces[a.selectedWsIndex]
+	if wsName != a.reposWorkspace {
+		a.repos = []model.RepoStatus{}
+		a.selectedIndex = 0
+	}
+	a.reposWorkspace = wsName
+	paths := append([]string(nil), a.cfg.Global.Workspaces[wsName]...)
+
 	return func() tea.Msg {
-		if len(a.workspaces) == 0 || a.selectedWsIndex >= len(a.workspaces) {
-			return refreshDoneMsg{repos: []model.RepoStatus{}}
-		}
-
-		wsName := a.workspaces[a.selectedWsIndex]
-		paths := a.cfg.Global.Workspaces[wsName]
-
 		repos, err := workspace.ScanRepos(paths)
 		if err != nil {
-			return refreshDoneMsg{err: err}
+			return refreshDoneMsg{seq: seq, err: err}
 		}
+		return refreshDoneMsg{seq: seq, repos: repos}
+	}
+}
+
+func (a *App) refreshRepoCmd(seq int, name string, path string) tea.Cmd {
+	return func() tea.Msg {
+		a.refreshLimiter <- struct{}{}
+		defer func() { <-a.refreshLimiter }()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
-		sem := make(chan struct{}, a.cfg.Concurrency)
-		ch := make(chan model.RepoStatus, len(repos))
-		for _, r := range repos {
-			r := r
-			sem <- struct{}{}
-			go func() {
-				defer func() { <-sem }()
-				status := a.git.RefreshRepo(ctx, r.Name, r.Path)
-				if a.gh.Authenticated() && status.Error != model.RepoErrNoRemote && status.Error != model.RepoErrNotARepo {
-					owner, rname, err := a.git.ParseOwnerRepoFromRemote(ctx, r.Path)
-					if err == nil {
-						prs, errPR := a.gh.ListPRs(ctx, owner, rname)
-						issues, errIssue := a.gh.ListIssues(ctx, owner, rname)
-						if errPR == nil && errIssue == nil {
-							prValue := len(prs)
-							issueValue := len(issues)
-							status.PROpen = &prValue
-							status.IssueOpen = &issueValue
-						}
-					}
+		status := a.git.RefreshRepo(ctx, name, path)
+		if a.gh.Authenticated() && status.Error != model.RepoErrNoRemote && status.Error != model.RepoErrNotARepo {
+			owner, rname, err := a.git.ParseOwnerRepoFromRemote(ctx, path)
+			if err == nil {
+				prs, errPR := a.gh.ListPRs(ctx, owner, rname)
+				issues, errIssue := a.gh.ListIssues(ctx, owner, rname)
+				if errPR == nil && errIssue == nil {
+					prValue := len(prs)
+					issueValue := len(issues)
+					status.PROpen = &prValue
+					status.IssueOpen = &issueValue
 				}
-				ch <- status
-			}()
-		}
-		for i := 0; i < cap(sem); i++ {
-			sem <- struct{}{}
+			}
 		}
 
-		statuses := make([]model.RepoStatus, 0, len(repos))
-		for i := 0; i < len(repos); i++ {
-			statuses = append(statuses, <-ch)
-		}
-		sort.Slice(statuses, func(i int, j int) bool { return statuses[i].Name < statuses[j].Name })
-		return refreshDoneMsg{repos: statuses}
+		return repoRefreshDoneMsg{seq: seq, status: status}
 	}
+}
+
+func (a *App) updateRepoStatus(status model.RepoStatus) {
+	for i := range a.repos {
+		if a.repos[i].Path != status.Path {
+			continue
+		}
+		a.repos[i] = status
+		return
+	}
+}
+
+func dedupeRepoDirsByPath(repos []workspace.RepoDir) []workspace.RepoDir {
+	seen := make(map[string]struct{}, len(repos))
+	out := make([]workspace.RepoDir, 0, len(repos))
+	for _, repo := range repos {
+		if _, ok := seen[repo.Path]; ok {
+			continue
+		}
+		seen[repo.Path] = struct{}{}
+		out = append(out, repo)
+	}
+	return out
 }
 
 func (a *App) loadRemoteCmd(repo model.RepoStatus) tea.Cmd {
@@ -1398,42 +1501,46 @@ func (a *App) filteredRepos() []model.RepoStatus {
 }
 
 func (a *App) workspaceCheckCmd() tea.Cmd {
-	workspaces := append([]string(nil), a.workspaces...)
-	workspacePaths := make(map[string][]string, len(workspaces))
-	for _, wsName := range workspaces {
-		workspacePaths[wsName] = append([]string(nil), a.cfg.Global.Workspaces[wsName]...)
+	cmds := make([]tea.Cmd, 0, len(a.workspaces))
+	for _, wsName := range a.workspaces {
+		if a.workspaceChecking[wsName] {
+			continue
+		}
+		a.workspaceChecking[wsName] = true
+		paths := append([]string(nil), a.cfg.Global.Workspaces[wsName]...)
+		cmds = append(cmds, a.workspaceCheckOneCmd(wsName, paths))
 	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
 
+func (a *App) workspaceCheckOneCmd(wsName string, paths []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		hasUpdate := make(map[string]bool, len(workspaces))
-		for _, wsName := range workspaces {
-			paths := workspacePaths[wsName]
-			repos, err := workspace.ScanRepos(paths)
-			if err != nil || len(repos) == 0 {
-				hasUpdate[wsName] = false
-				continue
-			}
-
-			// For performance, only sample up to 3 repos per workspace.
-			maxCheck := 3
-			if len(repos) < maxCheck {
-				maxCheck = len(repos)
-			}
-
-			updateFound := false
-			for i := 0; i < maxCheck; i++ {
-				if a.git.HasRemoteUpdate(ctx, repos[i].Path) {
-					updateFound = true
-					break
-				}
-			}
-			hasUpdate[wsName] = updateFound
+		repos, err := workspace.ScanRepos(paths)
+		if err != nil || len(repos) == 0 {
+			return workspaceCheckDoneMsg{workspace: wsName, hasUpdate: false}
 		}
 
-		return workspaceCheckDoneMsg{hasUpdate: hasUpdate}
+		// For performance, only sample up to 3 repos per workspace.
+		maxCheck := 3
+		if len(repos) < maxCheck {
+			maxCheck = len(repos)
+		}
+
+		updateFound := false
+		for i := 0; i < maxCheck; i++ {
+			if a.git.HasRemoteUpdate(ctx, repos[i].Path) {
+				updateFound = true
+				break
+			}
+		}
+
+		return workspaceCheckDoneMsg{workspace: wsName, hasUpdate: updateFound}
 	}
 }
 
