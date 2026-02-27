@@ -480,3 +480,56 @@ func TestRefreshDoneMsgDeduplicatesReposByPath(t *testing.T) {
 		t.Fatalf("expected pending count to match deduplicated repos, got %d", a.repoRefreshPending)
 	}
 }
+
+func TestConfigReloadedMsgAppliesConfigAndKeepsSelectedWorkspace(t *testing.T) {
+	a := New(config.Config{
+		Global: config.GlobalConfig{Workspaces: map[string][]string{
+			"ws-a": {"/tmp"},
+			"ws-b": {"/tmp"},
+		}},
+		IntervalSec: 300,
+		Concurrency: 1,
+		NoGitHub:    true,
+	})
+	a.screen = screenWorkspaces
+	a.selectedWsIndex = 1 // ws-b
+
+	_, cmd := a.Update(configReloadedMsg{
+		global: config.GlobalConfig{Workspaces: map[string][]string{
+			"ws-b": {"/tmp"},
+			"ws-c": {"/tmp"},
+		}},
+	})
+
+	if cmd == nil {
+		t.Fatalf("expected workspace check cmd after config reload")
+	}
+	if len(a.workspaces) != 2 || a.workspaces[0] != "ws-b" || a.workspaces[1] != "ws-c" {
+		t.Fatalf("unexpected workspace list: %+v", a.workspaces)
+	}
+	if a.selectedWsIndex != 0 {
+		t.Fatalf("expected selection to stay on ws-b, got index=%d", a.selectedWsIndex)
+	}
+}
+
+func TestConfigReloadedMsgUnchangedDoesNotTriggerRefresh(t *testing.T) {
+	a := New(config.Config{
+		Global: config.GlobalConfig{Workspaces: map[string][]string{
+			"default": {"/tmp"},
+		}},
+		IntervalSec: 300,
+		Concurrency: 1,
+		NoGitHub:    true,
+	})
+	a.screen = screenHome
+
+	_, cmd := a.Update(configReloadedMsg{
+		global: config.GlobalConfig{Workspaces: map[string][]string{
+			"default": {"/tmp"},
+		}},
+	})
+
+	if cmd != nil {
+		t.Fatalf("expected nil cmd when config unchanged")
+	}
+}

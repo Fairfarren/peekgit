@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -21,8 +22,9 @@ import (
 )
 
 const (
-	cardMinWidth = 44
-	cardGap      = 2
+	cardMinWidth           = 44
+	cardGap                = 2
+	configWatchIntervalSec = 2
 )
 
 type screen int
@@ -84,6 +86,13 @@ type workspaceCheckDoneMsg struct {
 	hasUpdate bool
 }
 
+type configWatchTickMsg time.Time
+
+type configReloadedMsg struct {
+	global config.GlobalConfig
+	err    error
+}
+
 type App struct {
 	cfg    config.Config
 	git    *gitcli.CLI
@@ -137,23 +146,8 @@ type App struct {
 }
 
 func New(cfg config.Config) *App {
-	wsKeys := make([]string, 0, len(cfg.Global.Workspaces))
-	for k := range cfg.Global.Workspaces {
-		wsKeys = append(wsKeys, k)
-	}
-	sort.Strings(wsKeys)
-
-	// Pre-calculate workspace counts (for display on cards)
-	wsCounts := make(map[string]int)
-	for _, k := range wsKeys {
-		paths := cfg.Global.Workspaces[k]
-		repos, err := workspace.ScanRepos(paths)
-		if err != nil {
-			wsCounts[k] = 0
-			continue
-		}
-		wsCounts[k] = len(repos)
-	}
+	wsKeys := sortedWorkspaceKeys(cfg.Global.Workspaces)
+	wsCounts := calcWorkspaceCounts(cfg.Global.Workspaces, wsKeys)
 
 	app := &App{
 		cfg:                cfg,
@@ -188,7 +182,7 @@ func New(cfg config.Config) *App {
 }
 
 func (a *App) Init() tea.Cmd {
-	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
+	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec), configWatchTickCmd()}
 	if len(a.workspaces) > 0 {
 		cmds = append(cmds, a.workspaceCheckCmd())
 	}
@@ -198,6 +192,12 @@ func (a *App) Init() tea.Cmd {
 func tickCmd(intervalSec int) tea.Cmd {
 	return tea.Tick(time.Duration(intervalSec)*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+func configWatchTickCmd() tea.Cmd {
+	return tea.Tick(time.Duration(configWatchIntervalSec)*time.Second, func(t time.Time) tea.Msg {
+		return configWatchTickMsg(t)
 	})
 }
 
@@ -345,6 +345,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.screen == screenHome && !a.loading {
 			cmds = append(cmds, a.refreshAllCmd())
+		}
+		return a, tea.Batch(cmds...)
+
+	case configWatchTickMsg:
+		return a, tea.Batch(configWatchTickCmd(), a.reloadGlobalConfigCmd())
+
+	case configReloadedMsg:
+		if m.err != nil {
+			a.errText = "配置文件错误: " + m.err.Error()
+			return a, nil
+		}
+		if reflect.DeepEqual(a.cfg.Global, m.global) {
+			return a, nil
+		}
+		a.applyGlobalConfig(m.global)
+		a.errText = ""
+
+		cmds := make([]tea.Cmd, 0, 2)
+		if len(a.workspaces) > 0 {
+			cmds = append(cmds, a.workspaceCheckCmd())
+		}
+		if a.screen != screenWorkspaces {
+			cmds = append(cmds, a.refreshAllCmd())
+		}
+		if len(cmds) == 0 {
+			return a, nil
 		}
 		return a, tea.Batch(cmds...)
 
@@ -1542,6 +1568,83 @@ func (a *App) workspaceCheckOneCmd(wsName string, paths []string) tea.Cmd {
 
 		return workspaceCheckDoneMsg{workspace: wsName, hasUpdate: updateFound}
 	}
+}
+
+func (a *App) reloadGlobalConfigCmd() tea.Cmd {
+	return func() tea.Msg {
+		global, err := config.LoadGlobalConfig()
+		return configReloadedMsg{global: global, err: err}
+	}
+}
+
+func (a *App) applyGlobalConfig(global config.GlobalConfig) {
+	selectedName := ""
+	if a.selectedWsIndex >= 0 && a.selectedWsIndex < len(a.workspaces) {
+		selectedName = a.workspaces[a.selectedWsIndex]
+	}
+
+	a.cfg.Global = global
+	a.workspaces = sortedWorkspaceKeys(global.Workspaces)
+	a.workspaceCounts = calcWorkspaceCounts(global.Workspaces, a.workspaces)
+	a.reconcileWorkspaceRuntimeState(selectedName)
+	a.recomputeGrid()
+}
+
+func (a *App) reconcileWorkspaceRuntimeState(selectedName string) {
+	nextHasUpdate := make(map[string]bool, len(a.workspaces))
+	nextChecking := make(map[string]bool, len(a.workspaces))
+	for _, ws := range a.workspaces {
+		nextHasUpdate[ws] = a.workspaceHasUpdate[ws]
+		nextChecking[ws] = false
+	}
+	a.workspaceHasUpdate = nextHasUpdate
+	a.workspaceChecking = nextChecking
+
+	if len(a.workspaces) == 0 {
+		a.selectedWsIndex = 0
+		a.reposWorkspace = ""
+		a.repos = []model.RepoStatus{}
+		a.selectedIndex = 0
+		a.screen = screenWorkspaces
+		return
+	}
+
+	if selectedName != "" {
+		for i, ws := range a.workspaces {
+			if ws == selectedName {
+				a.selectedWsIndex = i
+				return
+			}
+		}
+	}
+	if a.selectedWsIndex >= len(a.workspaces) {
+		a.selectedWsIndex = len(a.workspaces) - 1
+	}
+	if a.selectedWsIndex < 0 {
+		a.selectedWsIndex = 0
+	}
+}
+
+func sortedWorkspaceKeys(ws config.WorkspaceMap) []string {
+	keys := make([]string, 0, len(ws))
+	for k := range ws {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func calcWorkspaceCounts(ws config.WorkspaceMap, keys []string) map[string]int {
+	counts := make(map[string]int, len(keys))
+	for _, k := range keys {
+		repos, err := workspace.ScanRepos(ws[k])
+		if err != nil {
+			counts[k] = 0
+			continue
+		}
+		counts[k] = len(repos)
+	}
+	return counts
 }
 
 func (a *App) recomputeGrid() {
