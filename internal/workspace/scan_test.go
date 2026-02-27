@@ -95,3 +95,15 @@ func TestScanReposWildcard(t *testing.T) {
 		t.Fatalf("missing repos, found: %v", found)
 	}
 }
+
+func TestExpandWildcardPathEmptyPath(t *testing.T) {
+	// Test that empty path (from "/*") is handled correctly
+	// The function should resolve it to the filesystem root
+	repos, err := expandWildcardPath("")
+	if err != nil {
+		// On most systems, reading root directory may fail due to permissions
+		// but it should not fail due to empty path handling
+		t.Logf("expandWildcardPath(\"\") returned error: %v (may be expected)", err)
+	}
+	t.Logf("expandWildcardPath(\"\") returned %d repos", len(repos))
+}

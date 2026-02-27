@@ -84,6 +84,15 @@ func IsGitRepo(path string) (bool, error) {
 
 // expandWildcardPath scans the parent directory and returns all git repo subdirectories
 func expandWildcardPath(parentPath string) ([]RepoDir, error) {
+	// Handle edge case where wildcard was applied to filesystem root
+	// e.g., "/*" becomes "" or "C:\\*" becomes "C:"
+	if parentPath == "" {
+		parentPath = string(filepath.Separator)
+	} else if len(parentPath) == 2 && parentPath[1] == ':' {
+		// Windows drive letter without separator (e.g., "C:")
+		parentPath = parentPath + string(filepath.Separator)
+	}
+
 	absParent, err := filepath.Abs(parentPath)
 	if err != nil {
 		return nil, err
