@@ -81,6 +81,7 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
 
 - 程序启动时默认优先展示你在 `json` 中配置的全部 Workspaces 卡片列表。
 - 选择某个 Workspace 后，加载该 Workspace 中定义的所有仓库。
+- 程序运行中会持续监听配置文件变动（约每 2 秒检查一次），变更后自动热刷新 Workspaces 与仓库列表。
 
 ## GitHub 集成
 
