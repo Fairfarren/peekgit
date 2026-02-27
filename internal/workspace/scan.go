@@ -18,6 +18,17 @@ func ScanRepos(configuredPaths []string) ([]RepoDir, error) {
 func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 	repos := make([]RepoDir, 0, len(paths))
 	for _, p := range paths {
+		// Handle wildcard path ending with /*
+		if strings.HasSuffix(p, "/*") || strings.HasSuffix(p, "\\*") {
+			parentPath := p[:len(p)-2]
+			expanded, err := expandWildcardPath(parentPath)
+			if err != nil {
+				continue
+			}
+			repos = append(repos, expanded...)
+			continue
+		}
+
 		absPath, err := filepath.Abs(p)
 		if err != nil {
 			continue
@@ -69,4 +80,41 @@ func IsGitRepo(path string) (bool, error) {
 		return false, err
 	}
 	return st.IsDir(), nil
+}
+
+// expandWildcardPath scans the parent directory and returns all git repo subdirectories
+func expandWildcardPath(parentPath string) ([]RepoDir, error) {
+	// Handle edge case where wildcard was applied to filesystem root
+	// e.g., "/*" becomes "" or "C:\\*" becomes "C:"
+	if parentPath == "" {
+		parentPath = string(filepath.Separator)
+	} else if len(parentPath) == 2 && parentPath[1] == ':' {
+		// Windows drive letter without separator (e.g., "C:")
+		parentPath = parentPath + string(filepath.Separator)
+	}
+
+	absParent, err := filepath.Abs(parentPath)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(absParent)
+	if err != nil {
+		return nil, err
+	}
+
+	var repos []RepoDir
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		dirPath := filepath.Join(absParent, entry.Name())
+		ok, err := IsGitRepo(dirPath)
+		if err != nil || !ok {
+			continue
+		}
+		repos = append(repos, RepoDir{Name: entry.Name(), Path: dirPath})
+	}
+	return repos, nil
 }
