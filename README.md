@@ -54,11 +54,29 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
     "My Work": [
       "~/company/frontend",
       "~/company/backend-api"
+    ],
+    "All Projects": [
+      "~/projects/*"
     ]
   }
 }
 ```
 
+**通配符路径**：
+
+如果路径以 `/*` 结尾，程序会自动扫描该目录下的所有子目录，并找出其中的 Git 仓库。这样你就不需要一个一个地添加路径了：
+
+```json
+{
+  "workspaces": {
+    "All My Projects": [
+      "~/projects/*"
+    ]
+  }
+}
+```
+
+上面的配置会自动把 `~/projects/` 目录下的所有 Git 仓库都加入监控。
 **行为规则**：
 
 - 程序启动时默认优先展示你在 `json` 中配置的全部 Workspaces 卡片列表。

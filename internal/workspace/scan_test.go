@@ -65,3 +65,33 @@ func TestScanReposSkipsMissing(t *testing.T) {
 		t.Fatalf("repo count = %d, want 0", len(repos))
 	}
 }
+
+func TestScanReposWildcard(t *testing.T) {
+	root := t.TempDir()
+	// Create multiple git repos under root
+	repo1 := filepath.Join(root, "repo1")
+	repo2 := filepath.Join(root, "repo2")
+	nonRepo := filepath.Join(root, "non-git-dir")
+
+	_ = os.MkdirAll(filepath.Join(repo1, ".git"), 0o755)
+	_ = os.MkdirAll(filepath.Join(repo2, ".git"), 0o755)
+	_ = os.MkdirAll(nonRepo, 0o755)
+
+	// Test wildcard path /*
+	repos, err := ScanRepos([]string{root + "/*"})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("repo count = %d, want 2", len(repos))
+	}
+
+	// Verify both repos are found
+	found := make(map[string]bool)
+	for _, r := range repos {
+		found[r.Name] = true
+	}
+	if !found["repo1"] || !found["repo2"] {
+		t.Fatalf("missing repos, found: %v", found)
+	}
+}
