@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fairfarren/peekgit/internal/config"
 	"github.com/Fairfarren/peekgit/internal/model"
+	ghprovider "github.com/Fairfarren/peekgit/internal/provider/github"
 	"github.com/Fairfarren/peekgit/internal/workspace"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -306,8 +309,211 @@ func TestViewWorkspacesTinyHeightHidesCards(t *testing.T) {
 	if strings.Contains(view, "default") {
 		t.Fatalf("expected workspace cards to be hidden on tiny height")
 	}
-	if !strings.Contains(lines[len(lines)-1], "q 退出") {
+	if !strings.Contains(lines[len(lines)-1], "q退出") {
 		t.Fatalf("expected footer help on last line")
+	}
+}
+
+func TestUpdateWorkspacesSwitchTabsAndEnterOnlyWorkspace(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenWorkspaces
+
+	_, cmd := a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	if a.startTab != startTabPR {
+		t.Fatalf("expected start tab PR, got %v", a.startTab)
+	}
+	if cmd != nil {
+		t.Fatalf("expected no command in unauthenticated mode")
+	}
+
+	_, _ = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if a.screen != screenWorkspaces {
+		t.Fatalf("expected still workspaces screen when press enter on PR tab")
+	}
+
+	_, _ = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	if a.startTab != startTabWorkspace {
+		t.Fatalf("expected workspace tab, got %v", a.startTab)
+	}
+
+	_, cmd = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if a.screen != screenHome {
+		t.Fatalf("expected enter to switch to home on workspace tab")
+	}
+	if cmd == nil {
+		t.Fatalf("expected refresh command when enter workspace")
+	}
+}
+
+func TestUpdateWorkspacesRefreshRemoteTabsWithR(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenWorkspaces
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+
+	_, _ = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	_, cmd := a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd != nil {
+		t.Fatalf("expected no refresh command on workspace tab")
+	}
+
+	_, _ = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	if a.startTab != startTabPR {
+		t.Fatalf("expected PR tab")
+	}
+	now := time.Now()
+	_, cmd = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd == nil {
+		t.Fatalf("expected refresh command on PR tab")
+	}
+	if !a.startLoading {
+		t.Fatalf("expected startLoading=true after pressing r on PR tab")
+	}
+	if !a.startRefreshNoticeUntil.After(now) {
+		t.Fatalf("expected refresh notice deadline to be set in future")
+	}
+
+	a.startLoading = false
+	_, _ = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	if a.startTab != startTabIssue {
+		t.Fatalf("expected Issues tab")
+	}
+	_, cmd = a.updateWorkspaces(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd == nil {
+		t.Fatalf("expected refresh command on Issues tab")
+	}
+	if !a.startRefreshNoticeUntil.After(now) {
+		t.Fatalf("expected refresh notice deadline to be updated on issues tab")
+	}
+}
+
+func TestViewWorkspacesRendersStartupTabs(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenWorkspaces
+	a.startTab = startTabIssue
+
+	view := a.viewWorkspaces()
+	if !strings.Contains(view, "workspace") || !strings.Contains(view, "pr") || !strings.Contains(view, "issues") {
+		t.Fatalf("expected startup tabs in workspace view, got:\n%s", view)
+	}
+}
+
+func TestViewWorkspacesHelpTextDependsOnTab(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenWorkspaces
+
+	a.startTab = startTabWorkspace
+	workspaceView := a.viewWorkspaces()
+	if !strings.Contains(workspaceView, "Enter进入workspace") {
+		t.Fatalf("expected workspace help to contain enter action")
+	}
+	if strings.Contains(workspaceView, "r刷新(pr/issues)") {
+		t.Fatalf("did not expect workspace help to contain remote refresh hint")
+	}
+
+	a.startTab = startTabPR
+	prView := a.viewWorkspaces()
+	if !strings.Contains(prView, "r刷新") {
+		t.Fatalf("expected pr help to contain refresh hint")
+	}
+	if strings.Contains(prView, "Enter进入workspace") {
+		t.Fatalf("did not expect pr help to contain workspace enter hint")
+	}
+
+	a.startTab = startTabIssue
+	issueView := a.viewWorkspaces()
+	if !strings.Contains(issueView, "r刷新") {
+		t.Fatalf("expected issues help to contain refresh hint")
+	}
+	if strings.Contains(issueView, "Enter进入workspace") {
+		t.Fatalf("did not expect issues help to contain workspace enter hint")
+	}
+}
+
+func TestViewWorkspacesPRShowsRefreshingIndicatorWhenLoadingWithData(t *testing.T) {
+	a := newTestApp()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+	a.screen = screenWorkspaces
+	a.startTab = startTabPR
+	a.startLoading = true
+	a.startPRs = []model.AccountPullRequestItem{{
+		Number:     11,
+		Title:      "my-pr",
+		RepoFull:   "o/r",
+		UpdatedAt:  time.Date(2026, time.January, 3, 0, 0, 0, 0, time.UTC),
+		StateLabel: "OPEN",
+		CIStatus:   "SUCCESS",
+	}}
+
+	view := a.viewWorkspaces()
+	if !strings.Contains(view, "刷新中") {
+		t.Fatalf("expected visible refreshing indicator when loading with existing PR data")
+	}
+}
+
+func TestViewWorkspacesPRShowsRefreshTriggeredIndicatorWhenRequestSent(t *testing.T) {
+	a := newTestApp()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+	a.screen = screenWorkspaces
+	a.startTab = startTabPR
+	a.startLoading = false
+	a.startRefreshNoticeUntil = time.Now().Add(2 * time.Second)
+	a.startPRs = []model.AccountPullRequestItem{{
+		Number:     11,
+		Title:      "my-pr",
+		RepoFull:   "o/r",
+		UpdatedAt:  time.Date(2026, time.January, 3, 0, 0, 0, 0, time.UTC),
+		StateLabel: "OPEN",
+		CIStatus:   "SUCCESS",
+	}}
+
+	view := a.viewWorkspaces()
+	if !strings.Contains(view, "已触发刷新") {
+		t.Fatalf("expected visible refresh-triggered indicator after pressing r")
+	}
+}
+
+func TestViewWorkspacesIssueShowsRefreshingIndicatorWhenLoadingWithData(t *testing.T) {
+	a := newTestApp()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+	a.screen = screenWorkspaces
+	a.startTab = startTabIssue
+	a.startLoading = true
+	a.startIssues = []model.AccountIssueItem{{
+		Number:       21,
+		Title:        "my-issue",
+		RepoFull:     "o/r",
+		UpdatedAt:    time.Date(2026, time.January, 4, 0, 0, 0, 0, time.UTC),
+		StateLabel:   "OPEN | 我创建",
+		CreatedByMe:  true,
+		AssignedToMe: false,
+	}}
+
+	view := a.viewWorkspaces()
+	if !strings.Contains(view, "刷新中") {
+		t.Fatalf("expected visible refreshing indicator when loading with existing issue data")
+	}
+}
+
+func TestRenderStartPRLinesShowsCIStatus(t *testing.T) {
+	a := newTestApp()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+	a.startPRs = []model.AccountPullRequestItem{{
+		Number:     11,
+		Title:      "my-pr",
+		RepoFull:   "o/r",
+		UpdatedAt:  time.Date(2026, time.January, 3, 0, 0, 0, 0, time.UTC),
+		StateLabel: "OPEN",
+		CIStatus:   "SUCCESS",
+	}}
+
+	lines := a.renderStartPRLines([]string{"header"})
+	if !strings.Contains(strings.Join(lines, "\n"), "CI:SUCCESS") {
+		t.Fatalf("expected CI status in PR render lines")
 	}
 }
 
