@@ -24,7 +24,11 @@ go build -o peekgit ./cmd/repo-monitor
 repo-monitor
 ```
 
-程序会首先展示工作区（Workspace）列表卡片，选中后按 Enter 即可进入多仓库监控面板，查看具体的仓库状态。
+程序启动后会先进入启动页，包含三个标签：`workspace`、`pr`、`issues`。
+
+- `workspace`：展示工作区卡片，选中后按 Enter 进入多仓库监控面板。
+- `pr`：展示当前 GitHub 账号创建的 PR 列表。
+- `issues`：展示当前 GitHub 账号创建或 assignee 为自己的 Issues 列表。
 
 ## 命令行参数
 
@@ -79,7 +83,7 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
 上面的配置会自动把 `~/projects/` 目录下的所有 Git 仓库都加入监控。
 **行为规则**：
 
-- 程序启动时默认优先展示你在 `json` 中配置的全部 Workspaces 卡片列表。
+- 程序启动时默认进入 `workspace` 标签，并展示你在 `json` 中配置的全部 Workspaces 卡片列表。
 - 选择某个 Workspace 后，加载该 Workspace 中定义的所有仓库。
 - 程序运行中会持续监听配置文件变动（约每 2 秒检查一次），变更后自动热刷新 Workspaces 与仓库列表。
 
@@ -94,12 +98,15 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
 
 ## 键盘操作
 
-### 工作区列表视图 (Workspaces)
+### 启动页 (workspace / pr / issues)
 
 | 按键 | 操作 |
 |------|------|
-| `↑↓←→` / `h j k l` | 选择工作区卡片 |
-| `Space` / `Enter` | 进入相应工作区的仓库列表 |
+| `Tab` / `←→` / `h l` | 切换启动页标签 |
+| `1` `2` `3` | 快速切换到 workspace / pr / issues |
+| `↑↓` / `j k` | 在当前标签内移动选择（workspace 卡片或 pr/issues 列表） |
+| `Space` / `Enter` | 在 `workspace` 标签进入相应工作区的仓库列表 |
+| `o` | 在 `pr` / `issues` 标签打开当前选中项链接 |
 | `q` | 退出 |
 
 ### 仓库列表视图 (Home)
