@@ -70,6 +70,27 @@ type IssueItem struct {
 	Body      string
 }
 
+type AccountPullRequestItem struct {
+	Number     int
+	Title      string
+	RepoFull   string
+	UpdatedAt  time.Time
+	HTMLURL    string
+	StateLabel string
+	CIStatus   string
+}
+
+type AccountIssueItem struct {
+	Number       int
+	Title        string
+	RepoFull     string
+	UpdatedAt    time.Time
+	HTMLURL      string
+	StateLabel   string
+	CreatedByMe  bool
+	AssignedToMe bool
+}
+
 func SyncSymbol(state SyncState, ahead int, behind int) string {
 	switch state {
 	case SyncSynced:

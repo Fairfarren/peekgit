@@ -173,3 +173,86 @@ func TestDiffUsesCache(t *testing.T) {
 		t.Fatalf("diff=%s", diff)
 	}
 }
+
+func TestListMyPullRequestsAndIssues(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/user", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"login":"me"}`))
+	})
+	mux.HandleFunc("/api/v3/search/issues", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		if q == "is:pr is:open author:me" {
+			_, _ = w.Write([]byte(`{"items":[{"number":11,"title":"my-pr","state":"open","updated_at":"2026-01-03T00:00:00Z","html_url":"http://x/pr/11","repository_url":"https://api.github.com/repos/o/r","pull_request":{"url":"http://x/pr/11"}},{"number":12,"title":"closed-pr","state":"closed","updated_at":"2026-01-06T00:00:00Z","html_url":"http://x/pr/12","repository_url":"https://api.github.com/repos/o/r","pull_request":{"url":"http://x/pr/12"}}]}`))
+			return
+		}
+		if q == "is:issue is:open author:me" {
+			_, _ = w.Write([]byte(`{"items":[{"number":21,"title":"my-issue","state":"open","updated_at":"2026-01-04T00:00:00Z","html_url":"http://x/i/21","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":24,"title":"closed-authored-issue","state":"closed","updated_at":"2026-01-08T00:00:00Z","html_url":"http://x/i/24","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":23,"title":"pr-should-be-filtered","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/p/23","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"me"},"pull_request":{"url":"x"}}]}`))
+			return
+		}
+		if q == "is:issue is:open assignee:me" {
+			_, _ = w.Write([]byte(`{"items":[{"number":21,"title":"my-issue","state":"open","updated_at":"2026-01-04T00:00:00Z","html_url":"http://x/i/21","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":22,"title":"assigned-issue","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/i/22","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"assignees":[{"login":"me"}]},{"number":25,"title":"closed-assigned-issue","state":"closed","updated_at":"2026-01-09T00:00:00Z","html_url":"http://x/i/25","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"assignees":[{"login":"me"}]},{"number":23,"title":"pr-should-be-filtered","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/p/23","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"pull_request":{"url":"x"}}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/11", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"number":11,"head":{"sha":"sha11"}}`))
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/commits/sha11/status", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"state":"success"}`))
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	apiURL := srv.URL + "/"
+	ghc, err := gh.NewClient(nil).WithEnterpriseURLs(apiURL, apiURL)
+	if err != nil {
+		t.Fatalf("gh client: %v", err)
+	}
+
+	c := &Client{
+		client:       ghc,
+		auth:         true,
+		myPRCache:    cache.NewTTLCache[[]model.AccountPullRequestItem](time.Minute),
+		myIssueCache: cache.NewTTLCache[[]model.AccountIssueItem](time.Minute),
+		viewerCache:  cache.NewTTLCache[string](time.Minute),
+	}
+
+	prs, err := c.ListMyPullRequests(context.Background())
+	if err != nil {
+		t.Fatalf("my prs err=%v", err)
+	}
+	if len(prs) != 1 || prs[0].Number != 11 || prs[0].RepoFull != "o/r" {
+		t.Fatalf("unexpected my prs=%+v", prs)
+	}
+	if prs[0].CIStatus != "SUCCESS" {
+		t.Fatalf("expected ci status SUCCESS, got=%s", prs[0].CIStatus)
+	}
+
+	issues, err := c.ListMyIssues(context.Background())
+	if err != nil {
+		t.Fatalf("my issues err=%v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("unexpected my issues len=%d", len(issues))
+	}
+	if issues[0].Number != 22 || issues[0].CreatedByMe || !issues[0].AssignedToMe {
+		t.Fatalf("expected first issue only assigned to me and latest updated: %+v", issues[0])
+	}
+	if issues[1].Number != 21 || !issues[1].CreatedByMe || !issues[1].AssignedToMe {
+		t.Fatalf("expected second issue merged as created+assigned by me: %+v", issues[1])
+	}
+}
+
+func TestRepositoryFullNameFromURL(t *testing.T) {
+	if got := repositoryFullNameFromURL("https://api.github.com/repos/o/r"); got != "o/r" {
+		t.Fatalf("repo full name=%s", got)
+	}
+	if got := repositoryFullNameFromURL("https://api.github.com/repos/o/r/"); got != "o/r" {
+		t.Fatalf("repo full name with slash=%s", got)
+	}
+	if got := repositoryFullNameFromURL("bad"); got != "-" {
+		t.Fatalf("expected dash for bad url, got=%s", got)
+	}
+}
