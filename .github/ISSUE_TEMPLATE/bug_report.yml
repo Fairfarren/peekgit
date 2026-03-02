@@ -1,0 +1,57 @@
+name: Bug 反馈
+description: 提交一个可复现的问题报告
+title: '[Bug] '
+labels:
+  - bug
+body:
+  - type: textarea
+    attributes:
+      label: 问题描述
+      description: 清晰描述你遇到的问题
+      placeholder: 在什么场景下出现了什么异常
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 复现步骤
+      description: 按顺序描述复现路径
+      placeholder: |
+        1. 执行 ...
+        2. 打开 ...
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 预期行为
+      description: 你期望发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Go 版本
+      placeholder: 例如 go1.24.0
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: 操作系统
+      placeholder: 例如 macOS 15 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 其他信息
+      description: 日志、截图或补充说明
