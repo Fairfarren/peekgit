@@ -58,13 +58,13 @@ changelog:
       - Merge pull request
       - Merge branch
 
-# Homebrew Tap 配置 - 发布到当前仓库的 Formula/ 目录
+# Homebrew Tap 配置 - 发布到独立的 Tap 仓库
 brews:
   - name: peekgit
     repository:
       owner: Fairfarren
-      name: peekgit
-      branch: master
+      name: homebrew-peekgit
+      branch: main
     directory: Formula
     homepage: https://github.com/Fairfarren/peekgit
     description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
@@ -77,15 +77,14 @@ brews:
     commit_msg_template: "chore(release): brew formula for {{ .Tag }}"
     install: |-
       bin.install "repo-monitor"
-
-# Scoop Bucket 配置 - 发布到当前仓库的 scoop/ 目录
+# Scoop Bucket 配置 - 发布到独立的 Bucket 仓库
 scoops:
   - name: peekgit
     repository:
       owner: Fairfarren
-      name: peekgit
-      branch: master
-    directory: scoop
+      name: scoop-peekgit
+      branch: main
+    directory: .
     homepage: https://github.com/Fairfarren/peekgit
     description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
     license: MIT
