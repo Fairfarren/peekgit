@@ -63,7 +63,7 @@ func LoadGlobalConfig() (GlobalConfig, error) {
 }
 
 func Parse(args []string) (Config, error) {
-	fs := flag.NewFlagSet("repo-monitor", flag.ContinueOnError)
+	fs := flag.NewFlagSet("peekgit", flag.ContinueOnError)
 	interval := fs.Int("interval", DefaultIntervalSec, "refresh interval in seconds")
 	concurrency := fs.Int("concurrency", DefaultConcurrency, "fetch concurrency")
 	noGitHub := fs.Bool("no-github", false, "disable GitHub features")
