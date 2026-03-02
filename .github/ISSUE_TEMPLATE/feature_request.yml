@@ -1,0 +1,34 @@
+name: 功能建议
+description: 提交一个功能改进建议
+title: '[Feature] '
+labels:
+  - enhancement
+body:
+  - type: textarea
+    attributes:
+      label: 需求背景
+      description: 你想解决什么问题
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 建议方案
+      description: 你期望的行为或交互
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 替代方案
+      description: 你考虑过的其它可行做法
+
+  - type: textarea
+    attributes:
+      label: 影响范围
+      description: 可能影响的模块、命令或使用场景
+
+  - type: textarea
+    attributes:
+      label: 其他信息
+      description: 参考链接、截图、上下文信息
