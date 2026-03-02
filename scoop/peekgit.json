@@ -4,7 +4,7 @@
         "64bit": {
             "url": "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_windows_x86_64.zip",
             "bin": [
-                "repo-monitor.exe"
+                "peekgit.exe"
             ],
             "hash": "36e89e62943ce74ce85ad94182f83f1ea9d08fb1f336629c467f459c49c1cd5a"
         }

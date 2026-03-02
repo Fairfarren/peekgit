@@ -8,9 +8,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: repo-monitor
+  - id: peekgit
     main: ./cmd/repo-monitor
-    binary: repo-monitor
+    binary: peekgit
     env:
       - CGO_ENABLED=0
     goos:
@@ -27,9 +27,9 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
-  - id: repo-monitor
+  - id: peekgit
     builds:
-      - repo-monitor
+      - peekgit
     format: tar.gz
     format_overrides:
       - goos: windows
@@ -70,13 +70,13 @@ brews:
     description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
     license: MIT
     test: |
-      system "#{bin}/repo-monitor --help"
+      system "#{bin}/peekgit --help"
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
     commit_msg_template: "chore(release): brew formula for {{ .Tag }}"
     install: |-
-      bin.install "repo-monitor"
+      bin.install "peekgit"
 
 # Scoop Bucket 配置 - 发布到当前仓库的 scoop/ 目录
 scoops:

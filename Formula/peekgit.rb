@@ -14,7 +14,7 @@ class Peekgit < Formula
       sha256 "704f297db968b9055c6e4bc20b18c44ad79a8e8ae9a380cfc5ffbeaf56c71632"
 
       define_method(:install) do
-        bin.install "repo-monitor"
+        bin.install "peekgit"
       end
     end
     if Hardware::CPU.arm?
@@ -22,7 +22,7 @@ class Peekgit < Formula
       sha256 "d4d6227163ea4fcff025594f74d4e321d21135657e483af2298db5e0c78fcfcd"
 
       define_method(:install) do
-        bin.install "repo-monitor"
+        bin.install "peekgit"
       end
     end
   end
@@ -32,19 +32,19 @@ class Peekgit < Formula
       url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_linux_x86_64.tar.gz"
       sha256 "b47c9ef872e507334853a0f06ac02815fc261f57d1ad93cf35ecb88d73d5eb73"
       define_method(:install) do
-        bin.install "repo-monitor"
+        bin.install "peekgit"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_linux_arm64.tar.gz"
       sha256 "1206af80f1ebbe14527f37e9ba75f7e63899609511ac82f2dcb6743a7b95e853"
       define_method(:install) do
-        bin.install "repo-monitor"
+        bin.install "peekgit"
       end
     end
   end
 
   test do
-    system "#{bin}/repo-monitor --help"
+    system "#{bin}/peekgit --help"
   end
 end
