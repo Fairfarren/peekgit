@@ -1,0 +1,97 @@
+# .goreleaser.yaml
+# GoReleaser 配置文件 - 自动构建全平台二进制并发布到 Homebrew 和 Scoop
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: repo-monitor
+    main: ./cmd/repo-monitor
+    binary: repo-monitor
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - id: repo-monitor
+    builds:
+      - repo-monitor
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+# Homebrew Tap 配置 - 发布到当前仓库的 Formula/ 目录
+brews:
+  - name: peekgit
+    repository:
+      owner: Fairfarren
+      name: peekgit
+      branch: master
+    directory: Formula
+    homepage: https://github.com/Fairfarren/peekgit
+    description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
+    license: MIT
+    test: |
+      system "#{bin}/repo-monitor --help"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore(release): brew formula for {{ .Tag }}"
+    install: |-
+      bin.install "repo-monitor"
+
+# Scoop Bucket 配置 - 发布到当前仓库的 scoop/ 目录
+scoop:
+  name: peekgit
+  repository:
+    owner: Fairfarren
+    name: peekgit
+    branch: master
+  directory: scoop
+  homepage: https://github.com/Fairfarren/peekgit
+  description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
+  license: MIT
+  commit_author:
+    name: goreleaserbot
+    email: bot@goreleaser.com
+  commit_msg_template: "chore(release): scoop manifest for {{ .Tag }}"
+  persistence:
+    - "config.json"

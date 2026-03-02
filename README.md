@@ -4,16 +4,30 @@
 
 ## 安装
 
+### Homebrew (推荐 - macOS/Linux)
+
+```bash
+brew install Fairfarren/peekgit/peekgit
+```
+
+### Scoop (推荐 - Windows)
+
+```powershell
+scoop install https://raw.githubusercontent.com/Fairfarren/peekgit/master/scoop/peekgit.json
+```
+
+### Go install
+
 ```bash
 go install github.com/Fairfarren/peekgit/cmd/repo-monitor@latest
 ```
 
-或者克隆后本地构建：
+### 本地构建
 
 ```bash
 git clone https://github.com/Fairfarren/peekgit.git
 cd peekgit
-go build -o peekgit ./cmd/repo-monitor
+go build -o repo-monitor ./cmd/repo-monitor
 ```
 
 ## 快速开始
