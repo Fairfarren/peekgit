@@ -4,12 +4,15 @@ on:
   push:
     tags:
       - "v*"
-
+    branches:
+      - "master"
 permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  # 手动 tag 发布 - 当推送 v* 标签时触发
+  manual-release:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,12 +20,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: master
-
+      
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: stable
-
+      
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -31,3 +34,57 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 自动 patch 版本发布 - 当推送到 master 分支且不是 release commit 时触发
+  auto-patch-release:
+    if: github.ref == 'refs/heads/master' && !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get current version and create new patch version
+        id: get-version
+        run: |
+          # 获取最新标签
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # 提取版本号并递增 patch 版本
+          VERSION=$(echo $LATEST_TAG | sed 's/v//')
+          MAJOR=$(echo $VERSION | cut -d'.' -f1)
+          MINOR=$(echo $VERSION | cut -d'.' -f2)
+          PATCH=$(echo $VERSION | cut -d'.' -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Creating new patch version: $NEW_VERSION"
+      
+      - name: Configure git
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+      
+      - name: Create and push new patch tag
+        run: |
+          git tag ${{ steps.get-version.outputs.new_version }}
+          git push origin ${{ steps.get-version.outputs.new_version }}
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
