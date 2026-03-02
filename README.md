@@ -27,7 +27,7 @@ go install github.com/Fairfarren/peekgit/cmd/repo-monitor@latest
 ```bash
 git clone https://github.com/Fairfarren/peekgit.git
 cd peekgit
-go build -o repo-monitor ./cmd/repo-monitor
+go build -o peekgit ./cmd/repo-monitor
 ```
 
 ## 快速开始
@@ -35,7 +35,7 @@ go build -o repo-monitor ./cmd/repo-monitor
 配置好 `~/.config/peekgit/config.json` 后，在任意目录直接运行：
 
 ```bash
-repo-monitor
+peekgit
 ```
 
 程序启动后会先进入启动页，包含三个标签：`workspace`、`pr`、`issues`。
@@ -53,7 +53,7 @@ repo-monitor
 | `--no-github` | false | 禁用 GitHub 功能（PR、Issues） |
 
 ```bash
-repo-monitor --interval 60 --concurrency 5
+peekgit --interval 60 --concurrency 5
 ```
 
 ## 全局配置文件
