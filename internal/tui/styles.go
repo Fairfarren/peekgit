@@ -44,22 +44,22 @@ var (
 	searchInfoStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
 
 	// Split diff view styles
-	panelStyle         = lipgloss.NewStyle().Padding(0, 1)
-	fileListStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#CCCCCC"})
-	fileSelectedStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"})
-	dirStyle           = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
-	fileAddStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
-	fileDelStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
-	fileModStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
-	panelBorderFocus   = lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}
-	panelBorderBlur    = lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
+	panelStyle        = lipgloss.NewStyle().Padding(0, 1)
+	fileListStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#CCCCCC"})
+	fileSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"})
+	dirStyle          = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
+	fileAddStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
+	fileDelStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
+	fileModStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
+	panelBorderFocus  = lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}
+	panelBorderBlur   = lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
 
 	// File tree styles
-	selectedRowStyle   = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#E8F0FE", Dark: "#1A3A5C"}).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#FFFFFF"})
-	cursorStyle        = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Bold(true)
-	statsAddStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
-	statsDelStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
-	fileStatsDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+	selectedRowStyle  = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#E8F0FE", Dark: "#1A3A5C"}).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#FFFFFF"})
+	cursorStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Bold(true)
+	statsAddStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
+	statsDelStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
+	fileStatsDimStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
 )
 
 func renderSyncColored(state model.SyncState, ahead int, behind int) string {
