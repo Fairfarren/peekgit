@@ -1536,21 +1536,6 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 		statsStr = fmt.Sprintf(" (+%d/-%d)", f.AddLines, f.DelLines)
 	}
 
-	// Build plain text content for width calculation
-	plainText := indentStr + "  ■ " + tl.name + statsStr
-
-	// Truncate filename if plain text is too long
-	if lipgloss.Width(plainText) > width {
-		availableForName := width - len(indentStr) - 4 - lipgloss.Width(statsStr)
-		if availableForName > 3 && len(tl.name) > availableForName {
-			// Truncate name and add ellipsis
-			truncatedName := tl.name[:availableForName-1] + "…"
-			plainText = indentStr + "  ■ " + truncatedName + statsStr
-		} else if availableForName > 0 {
-			plainText = plainText[:width]
-		}
-	}
-
 	// Build styled line
 	line := indentStr + "  " + statusSquare + " " + tl.name
 	if statsStr != "" {

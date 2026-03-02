@@ -250,7 +250,7 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 			if existing, ok := merged[key]; ok {
 				existing.CreatedByMe = existing.CreatedByMe || createdByMe
 				existing.AssignedToMe = existing.AssignedToMe || assignedToMe
-				if it.GetUpdatedAt().Time.After(existing.UpdatedAt) {
+				if it.GetUpdatedAt().After(existing.UpdatedAt) {
 					existing.UpdatedAt = it.GetUpdatedAt().Time
 					existing.Title = it.GetTitle()
 					existing.HTMLURL = it.GetHTMLURL()
