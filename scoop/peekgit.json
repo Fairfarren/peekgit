@@ -1,0 +1,15 @@
+{
+    "version": "0.1.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_windows_x86_64.zip",
+            "bin": [
+                "repo-monitor.exe"
+            ],
+            "hash": "36e89e62943ce74ce85ad94182f83f1ea9d08fb1f336629c467f459c49c1cd5a"
+        }
+    },
+    "homepage": "https://github.com/Fairfarren/peekgit",
+    "license": "MIT",
+    "description": "终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。"
+}
