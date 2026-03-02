@@ -256,7 +256,7 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 					existing.HTMLURL = it.GetHTMLURL()
 					existing.StateLabel = state
 				}
-				existing.StateLabel = buildIssueStateLabel(existing.StateLabel, existing.CreatedByMe, existing.AssignedToMe)
+				existing.StateLabel = buildIssueStateLabel(state, existing.CreatedByMe, existing.AssignedToMe)
 				merged[key] = existing
 				continue
 			}

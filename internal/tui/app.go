@@ -102,9 +102,10 @@ type configReloadedMsg struct {
 }
 
 type accountRemoteLoadedMsg struct {
-	prs   []model.AccountPullRequestItem
-	items []model.AccountIssueItem
-	err   string
+	prs      []model.AccountPullRequestItem
+	items    []model.AccountIssueItem
+	prErr    string
+	issueErr string
 }
 
 type App struct {
@@ -135,7 +136,8 @@ type App struct {
 	startPRIdx              int
 	startIssueIdx           int
 	startLoading            bool
-	startErr                string
+	startPRErr              string
+	startIssueErr           string
 	startRefreshNoticeUntil time.Time
 
 	filterMode bool
@@ -411,7 +413,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.startLoading = false
 		a.startPRs = m.prs
 		a.startIssues = m.items
-		a.startErr = m.err
+		a.startPRErr = m.prErr
+		a.startIssueErr = m.issueErr
 		if a.startPRIdx >= len(a.startPRs) {
 			a.startPRIdx = max(0, len(a.startPRs)-1)
 		}
@@ -456,7 +459,8 @@ func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		if (a.startTab == startTabPR || a.startTab == startTabIssue) && a.gh.Authenticated() {
 			a.startLoading = true
-			a.startErr = ""
+			a.startPRErr = ""
+			a.startIssueErr = ""
 			a.startRefreshNoticeUntil = time.Now().Add(2 * time.Second)
 			return a, a.loadAccountRemoteCmd()
 		}
@@ -879,8 +883,8 @@ func (a *App) renderStartPRLines(headerLines []string) []string {
 	}
 	lines := append([]string{}, headerLines...)
 	lines = a.appendStartRefreshHint(lines)
-	if a.startErr != "" {
-		return append(lines, errStyle.Render("错误: "+a.startErr))
+	if a.startPRErr != "" {
+		return append(lines, errStyle.Render("错误: "+a.startPRErr))
 	}
 	if len(a.startPRs) == 0 {
 		if a.startLoading {
@@ -925,8 +929,8 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 	}
 	lines := append([]string{}, headerLines...)
 	lines = a.appendStartRefreshHint(lines)
-	if a.startErr != "" {
-		return append(lines, errStyle.Render("错误: "+a.startErr))
+	if a.startIssueErr != "" {
+		return append(lines, errStyle.Render("错误: "+a.startIssueErr))
 	}
 	if len(a.startIssues) == 0 {
 		if a.startLoading {
@@ -989,17 +993,22 @@ func (a *App) loadAccountRemoteCmd() tea.Cmd {
 		defer cancel()
 		prs, errPR := a.gh.ListMyPullRequests(ctx)
 		issues, errIssue := a.gh.ListMyIssues(ctx)
-		errText := ""
+		prErrText := ""
+		issueErrText := ""
 		if errPR == ghprovider.ErrUnauthenticated || errIssue == ghprovider.ErrUnauthenticated {
-			errText = "unauth"
+			prErrText = "unauth"
+			issueErrText = "unauth"
 			prs = []model.AccountPullRequestItem{}
 			issues = []model.AccountIssueItem{}
-		} else if errPR != nil {
-			errText = errPR.Error()
-		} else if errIssue != nil {
-			errText = errIssue.Error()
+		} else {
+			if errPR != nil {
+				prErrText = errPR.Error()
+			}
+			if errIssue != nil {
+				issueErrText = errIssue.Error()
+			}
 		}
-		return accountRemoteLoadedMsg{prs: prs, items: issues, err: errText}
+		return accountRemoteLoadedMsg{prs: prs, items: issues, prErr: prErrText, issueErr: issueErrText}
 	}
 }
 
