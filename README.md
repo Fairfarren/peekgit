@@ -7,7 +7,8 @@
 ### Homebrew (推荐 - macOS/Linux)
 
 ```bash
-brew install https://raw.githubusercontent.com/Fairfarren/peekgit/master/Formula/peekgit.rb
+brew tap Fairfarren/tap
+brew install peekgit
 ```
 
 ### Scoop (推荐 - Windows)
