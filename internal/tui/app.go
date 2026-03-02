@@ -43,6 +43,14 @@ const (
 	tabIssue
 )
 
+type startTab int
+
+const (
+	startTabWorkspace startTab = iota
+	startTabPR
+	startTabIssue
+)
+
 type refreshDoneMsg struct {
 	seq   int
 	repos []workspace.RepoDir
@@ -93,6 +101,13 @@ type configReloadedMsg struct {
 	err    error
 }
 
+type accountRemoteLoadedMsg struct {
+	prs      []model.AccountPullRequestItem
+	items    []model.AccountIssueItem
+	prErr    string
+	issueErr string
+}
+
 type App struct {
 	cfg    config.Config
 	git    *gitcli.CLI
@@ -114,6 +129,16 @@ type App struct {
 	selectedWsIndex    int
 	repoRefreshing     map[string]bool
 	repoRefreshPending int
+
+	startTab                startTab
+	startPRs                []model.AccountPullRequestItem
+	startIssues             []model.AccountIssueItem
+	startPRIdx              int
+	startIssueIdx           int
+	startLoading            bool
+	startPRErr              string
+	startIssueErr           string
+	startRefreshNoticeUntil time.Time
 
 	filterMode bool
 	filterText string
@@ -166,6 +191,7 @@ func New(cfg config.Config) *App {
 		workspaceHasUpdate: make(map[string]bool),
 		workspaceChecking:  make(map[string]bool),
 		repoRefreshing:     make(map[string]bool),
+		startTab:           startTabWorkspace,
 		diffTree:           &DiffTree{},
 		diffFileIdx:        0,
 		diffFocusLeft:      true,
@@ -185,6 +211,10 @@ func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec), configWatchTickCmd()}
 	if len(a.workspaces) > 0 {
 		cmds = append(cmds, a.workspaceCheckCmd())
+	}
+	if a.gh.Authenticated() {
+		a.startLoading = true
+		cmds = append(cmds, a.loadAccountRemoteCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -379,6 +409,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.workspaceChecking[m.workspace] = false
 		return a, nil
 
+	case accountRemoteLoadedMsg:
+		a.startLoading = false
+		a.startPRs = m.prs
+		a.startIssues = m.items
+		a.startPRErr = m.prErr
+		a.startIssueErr = m.issueErr
+		if a.startPRIdx >= len(a.startPRs) {
+			a.startPRIdx = max(0, len(a.startPRs)-1)
+		}
+		if a.startIssueIdx >= len(a.startIssues) {
+			a.startIssueIdx = max(0, len(a.startIssues)-1)
+		}
+		return a, nil
+
 	case tea.KeyMsg:
 		if a.searchMode {
 			return a.updateSearchInput(m)
@@ -401,25 +445,73 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if len(a.workspaces) == 0 {
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
-			return a, tea.Quit
-		}
-		return a, nil
-	}
-
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return a, tea.Quit
-	case "up", "k":
-		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "up")
-	case "down", "j":
-		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "down")
+	case "tab":
+		return a, a.switchStartTab(a.startTab + 1)
+	case "1":
+		return a, a.switchStartTab(startTabWorkspace)
+	case "2":
+		return a, a.switchStartTab(startTabPR)
+	case "3":
+		return a, a.switchStartTab(startTabIssue)
+	case "r":
+		if (a.startTab == startTabPR || a.startTab == startTabIssue) && a.gh.Authenticated() {
+			a.startLoading = true
+			a.startPRErr = ""
+			a.startIssueErr = ""
+			a.startRefreshNoticeUntil = time.Now().Add(2 * time.Second)
+			return a, a.loadAccountRemoteCmd()
+		}
+		return a, nil
 	case "left", "h":
-		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "left")
+		if a.startTab == startTabWorkspace {
+			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "left")
+			return a, nil
+		}
+		return a, a.switchStartTab(a.startTab - 1)
 	case "right", "l":
-		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "right")
+		if a.startTab == startTabWorkspace {
+			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "right")
+			return a, nil
+		}
+		return a, a.switchStartTab(a.startTab + 1)
+	case "up", "k":
+		switch a.startTab {
+		case startTabWorkspace:
+			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "up")
+		case startTabPR:
+			if a.startPRIdx > 0 {
+				a.startPRIdx--
+			}
+		case startTabIssue:
+			if a.startIssueIdx > 0 {
+				a.startIssueIdx--
+			}
+		}
+	case "down", "j":
+		switch a.startTab {
+		case startTabWorkspace:
+			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "down")
+		case startTabPR:
+			if a.startPRIdx < len(a.startPRs)-1 {
+				a.startPRIdx++
+			}
+		case startTabIssue:
+			if a.startIssueIdx < len(a.startIssues)-1 {
+				a.startIssueIdx++
+			}
+		}
+	case "o":
+		return a, a.openWorkspaceTabCurrentURLCmd()
 	case " ", "enter":
+		if a.startTab != startTabWorkspace {
+			return a, nil
+		}
+		if len(a.workspaces) == 0 {
+			return a, nil
+		}
 		a.screen = screenHome
 		a.selectedIndex = 0
 		return a, a.refreshAllCmd()
@@ -672,10 +764,34 @@ func (a *App) View() string {
 
 func (a *App) viewWorkspaces() string {
 	header := titleStyle.Render("Repo Monitor - Workspaces")
-	help := helpStyle.Render("↑↓←→/h j k l 选择  Space/Enter 进入  q 退出")
+	tabLabels := []string{"workspace", "pr", "issues"}
+	tabStrs := make([]string, len(tabLabels))
+	for i, label := range tabLabels {
+		if startTab(i) == a.startTab {
+			tabStrs[i] = tabActiveStyle.Render("[" + label + "]")
+		} else {
+			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
+		}
+	}
+	tabLine := strings.Join(tabStrs, "  ")
+
+	helpText := "Tab/←→ 切换页签  1/2/3 快速切换  ↑↓选择  Enter进入workspace  q退出"
+	if a.startTab == startTabPR || a.startTab == startTabIssue {
+		helpText = "Tab/←→ 切换页签  1/2/3 快速切换  ↑↓选择  r刷新  o打开链接  q退出"
+	}
+	help := helpStyle.Render(helpText)
 	columns := max(1, a.columns)
 
-	headerLines := []string{header, ""}
+	headerLines := []string{header, tabLine, ""}
+
+	if a.startTab == startTabPR {
+		bodyLines := a.renderStartPRLines(headerLines)
+		return composeWithFooter(a.height, bodyLines, help)
+	}
+	if a.startTab == startTabIssue {
+		bodyLines := a.renderStartIssueLines(headerLines)
+		return composeWithFooter(a.height, bodyLines, help)
+	}
 
 	if len(a.workspaces) == 0 {
 		bodyLines := append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
@@ -757,6 +873,161 @@ func (a *App) renderWorkspaceCard(name string, selected bool) string {
 	}
 
 	return s.Render(nameStr + indicator + "\n" + countStr)
+}
+
+func (a *App) renderStartPRLines(headerLines []string) []string {
+	if !a.gh.Authenticated() {
+		lines := append([]string{}, headerLines...)
+		lines = a.appendStartRefreshHint(lines)
+		return append(lines, "当前未登录 GitHub，无法显示 PR 列表")
+	}
+	lines := append([]string{}, headerLines...)
+	lines = a.appendStartRefreshHint(lines)
+	if a.startPRErr != "" {
+		return append(lines, errStyle.Render("错误: "+a.startPRErr))
+	}
+	if len(a.startPRs) == 0 {
+		if a.startLoading {
+			return append(lines, loadingStyle.Render("加载当前账号 PR 中..."))
+		}
+		return append(lines, "当前账号下暂无 PR")
+	}
+
+	listHeight := a.height - len(lines) - 1
+	if listHeight < 0 {
+		listHeight = 0
+	}
+	start, end := calculateScrollWindow(len(a.startPRs), a.startPRIdx, listHeight)
+	listLines := append([]string{}, lines...)
+	for i := start; i < end; i++ {
+		pr := a.startPRs[i]
+		numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
+		repoStr := wsPathStyle.Render(pr.RepoFull)
+		stateStr := labelDimStyle.Render(pr.StateLabel)
+		ciStatus := strings.TrimSpace(pr.CIStatus)
+		if ciStatus == "" {
+			ciStatus = "UNKNOWN"
+		}
+		ciStr := labelDimStyle.Render("CI:" + ciStatus)
+		dateStr := dateStyle.Render(pr.UpdatedAt.Format("2006-01-02"))
+		line := numStr + " " + pr.Title + "  [" + repoStr + "]  " + stateStr + "  " + ciStr + "  " + dateStr
+		if i == a.startPRIdx {
+			line = selectedMarkerStyle.Render(">") + " " + line
+		} else {
+			line = "  " + line
+		}
+		listLines = append(listLines, line)
+	}
+	return listLines
+}
+
+func (a *App) renderStartIssueLines(headerLines []string) []string {
+	if !a.gh.Authenticated() {
+		lines := append([]string{}, headerLines...)
+		lines = a.appendStartRefreshHint(lines)
+		return append(lines, "当前未登录 GitHub，无法显示 Issues 列表")
+	}
+	lines := append([]string{}, headerLines...)
+	lines = a.appendStartRefreshHint(lines)
+	if a.startIssueErr != "" {
+		return append(lines, errStyle.Render("错误: "+a.startIssueErr))
+	}
+	if len(a.startIssues) == 0 {
+		if a.startLoading {
+			return append(lines, loadingStyle.Render("加载当前账号 Issues 中..."))
+		}
+		return append(lines, "当前账号下暂无 Issues（我创建或指派给我）")
+	}
+
+	listHeight := a.height - len(lines) - 1
+	if listHeight < 0 {
+		listHeight = 0
+	}
+	start, end := calculateScrollWindow(len(a.startIssues), a.startIssueIdx, listHeight)
+	listLines := append([]string{}, lines...)
+	for i := start; i < end; i++ {
+		is := a.startIssues[i]
+		numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
+		repoStr := wsPathStyle.Render(is.RepoFull)
+		stateStr := labelDimStyle.Render(is.StateLabel)
+		dateStr := dateStyle.Render(is.UpdatedAt.Format("2006-01-02"))
+		line := numStr + " " + is.Title + "  [" + repoStr + "]  " + stateStr + "  " + dateStr
+		if i == a.startIssueIdx {
+			line = selectedMarkerStyle.Render(">") + " " + line
+		} else {
+			line = "  " + line
+		}
+		listLines = append(listLines, line)
+	}
+	return listLines
+}
+
+func (a *App) appendStartRefreshHint(lines []string) []string {
+	if a.startLoading {
+		return append(lines, loadingStyle.Render("刷新中..."))
+	}
+	if time.Now().Before(a.startRefreshNoticeUntil) {
+		return append(lines, loadingStyle.Render("已触发刷新"))
+	}
+	return lines
+}
+
+func (a *App) switchStartTab(next startTab) tea.Cmd {
+	if next < startTabWorkspace {
+		next = startTabIssue
+	}
+	if next > startTabIssue {
+		next = startTabWorkspace
+	}
+	a.startTab = next
+	if (next == startTabPR || next == startTabIssue) && a.gh.Authenticated() && len(a.startPRs) == 0 && len(a.startIssues) == 0 && !a.startLoading {
+		a.startLoading = true
+		return a.loadAccountRemoteCmd()
+	}
+	return nil
+}
+
+func (a *App) loadAccountRemoteCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		prs, errPR := a.gh.ListMyPullRequests(ctx)
+		issues, errIssue := a.gh.ListMyIssues(ctx)
+		prErrText := ""
+		issueErrText := ""
+		if errPR == ghprovider.ErrUnauthenticated || errIssue == ghprovider.ErrUnauthenticated {
+			prErrText = "unauth"
+			issueErrText = "unauth"
+			prs = []model.AccountPullRequestItem{}
+			issues = []model.AccountIssueItem{}
+		} else {
+			if errPR != nil {
+				prErrText = errPR.Error()
+			}
+			if errIssue != nil {
+				issueErrText = errIssue.Error()
+			}
+		}
+		return accountRemoteLoadedMsg{prs: prs, items: issues, prErr: prErrText, issueErr: issueErrText}
+	}
+}
+
+func (a *App) openWorkspaceTabCurrentURLCmd() tea.Cmd {
+	return func() tea.Msg {
+		url := ""
+		if a.startTab == startTabPR && len(a.startPRs) > 0 {
+			url = a.startPRs[a.startPRIdx].HTMLURL
+		}
+		if a.startTab == startTabIssue && len(a.startIssues) > 0 {
+			url = a.startIssues[a.startIssueIdx].HTMLURL
+		}
+		if url == "" {
+			return nil
+		}
+		cmd := browserOpenCmd(url)
+		_ = cmd.Run()
+		return nil
+	}
 }
 
 func (a *App) viewHome() string {
@@ -1263,21 +1534,6 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 	statsStr := ""
 	if f.AddLines > 0 || f.DelLines > 0 {
 		statsStr = fmt.Sprintf(" (+%d/-%d)", f.AddLines, f.DelLines)
-	}
-
-	// Build plain text content for width calculation
-	plainText := indentStr + "  ■ " + tl.name + statsStr
-
-	// Truncate filename if plain text is too long
-	if lipgloss.Width(plainText) > width {
-		availableForName := width - len(indentStr) - 4 - lipgloss.Width(statsStr)
-		if availableForName > 3 && len(tl.name) > availableForName {
-			// Truncate name and add ellipsis
-			truncatedName := tl.name[:availableForName-1] + "…"
-			plainText = indentStr + "  ■ " + truncatedName + statsStr
-		} else if availableForName > 0 {
-			plainText = plainText[:width]
-		}
 	}
 
 	// Build styled line
