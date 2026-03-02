@@ -156,6 +156,14 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
 | ↻ | 正在检查远端更新 |
 | ↓ | 有仓库需要 pull |
 
+## 开源协作
+
+- 许可证：见 `LICENSE`
+- 贡献方式：见 `CONTRIBUTING.md`
+- 行为准则：见 `CODE_OF_CONDUCT.md`
+- 安全策略：见 `SECURITY.md`
+- 变更记录：见 `CHANGELOG.md`
+
 ## 项目结构
 
 ```
