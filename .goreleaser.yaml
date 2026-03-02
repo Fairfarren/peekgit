@@ -79,19 +79,19 @@ brews:
       bin.install "repo-monitor"
 
 # Scoop Bucket 配置 - 发布到当前仓库的 scoop/ 目录
-scoop:
-  name: peekgit
-  repository:
-    owner: Fairfarren
-    name: peekgit
-    branch: master
-  directory: scoop
-  homepage: https://github.com/Fairfarren/peekgit
-  description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
-  license: MIT
-  commit_author:
-    name: goreleaserbot
-    email: bot@goreleaser.com
-  commit_msg_template: "chore(release): scoop manifest for {{ .Tag }}"
-  persistence:
-    - "config.json"
+scoops:
+  - name: peekgit
+    repository:
+      owner: Fairfarren
+      name: peekgit
+      branch: master
+    directory: scoop
+    homepage: https://github.com/Fairfarren/peekgit
+    description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
+    license: MIT
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore(release): scoop manifest for {{ .Tag }}"
+    persistence:
+      - "config.json"
