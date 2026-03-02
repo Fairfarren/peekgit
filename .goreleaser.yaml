@@ -93,5 +93,3 @@ scoops:
       name: goreleaserbot
       email: bot@goreleaser.com
     commit_msg_template: "chore(release): scoop manifest for {{ .Tag }}"
-    persistence:
-      - "config.json"
