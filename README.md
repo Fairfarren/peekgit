@@ -14,8 +14,16 @@ brew install peekgit
 ### Scoop (推荐 - Windows)
 
 ```powershell
+# 需要先安装 Scoop: https://scoop.sh/
 scoop install https://raw.githubusercontent.com/Fairfarren/peekgit/master/scoop/peekgit.json
 ```
+
+说明：当前发布提供 Windows x64（`peekgit_windows_x86_64.zip`）产物。
+
+### 手动安装 (Windows 备用)
+
+1. 从 GitHub Releases 下载 `peekgit_windows_x86_64.zip`
+2. 解压后将 `peekgit.exe` 所在目录加入 `PATH`
 
 ### Go install
 
