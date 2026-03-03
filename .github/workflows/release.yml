@@ -8,6 +8,7 @@ on:
       - "master"
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   # 手动 tag 发布 - 当推送 v* 标签时触发
@@ -35,9 +36,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 自动 patch 版本发布 - 当推送到 master 分支且不是 release commit 时触发
+  # 自动 patch 版本发布 - 当推送到 master 分支且不是 release commit 或 GoReleaser PR 合并时触发
   auto-patch-release:
-    if: github.ref == 'refs/heads/master' && !startsWith(github.event.head_commit.message, 'chore(release):')
+    if: github.ref == 'refs/heads/master' && !startsWith(github.event.head_commit.message, 'chore(release):') && !startsWith(github.event.head_commit.message, 'Merge pull request')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -86,5 +87,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 
