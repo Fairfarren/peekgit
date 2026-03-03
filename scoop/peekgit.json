@@ -6,7 +6,17 @@
             "bin": [
                 "peekgit.exe"
             ],
-            "hash": "36e89e62943ce74ce85ad94182f83f1ea9d08fb1f336629c467f459c49c1cd5a"
+            "hash": "sha256:36e89e62943ce74ce85ad94182f83f1ea9d08fb1f336629c467f459c49c1cd5a"
+        }
+    },
+    "checkver": {
+        "github": "https://github.com/Fairfarren/peekgit"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/Fairfarren/peekgit/releases/download/v$version/peekgit_windows_x86_64.zip"
+            }
         }
     },
     "homepage": "https://github.com/Fairfarren/peekgit",
