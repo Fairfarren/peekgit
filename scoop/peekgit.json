@@ -1,12 +1,12 @@
 {
-    "version": "0.1.5",
+    "version": "0.1.7",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/Fairfarren/peekgit/releases/download/v0.1.5/peekgit_windows_x86_64.zip",
+            "url": "https://github.com/Fairfarren/peekgit/releases/download/v0.1.7/peekgit_windows_x86_64.zip",
             "bin": [
                 "peekgit.exe"
             ],
-            "hash": "a73bbe20f07a913f547e12e2420e1d19e2f2767d71bbdff4457cfb3ae49d83b0"
+            "hash": "d53cfc47c6ea18c5b738c7f2eaf750dd8dd98c3f5aac2f1936a8e92227e590ca"
         }
     },
     "homepage": "https://github.com/Fairfarren/peekgit",

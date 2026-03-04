@@ -65,13 +65,7 @@ brews:
     repository:
       owner: Fairfarren
       name: peekgit
-      branch: "{{ .ProjectName }}-{{ .Version }}"
-      pull_request:
-        enabled: true
-        base:
-          owner: Fairfarren
-          name: peekgit
-          branch: master
+      branch: master
     directory: Formula
     homepage: https://github.com/Fairfarren/peekgit
     description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
@@ -91,13 +85,7 @@ scoops:
     repository:
       owner: Fairfarren
       name: peekgit
-      branch: "{{ .ProjectName }}-{{ .Version }}"
-      pull_request:
-        enabled: true
-        base:
-          owner: Fairfarren
-          name: peekgit
-          branch: master
+      branch: master
     directory: scoop
     homepage: https://github.com/Fairfarren/peekgit
     description: 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
