@@ -7,8 +7,8 @@
 ### Homebrew (推荐 - macOS/Linux)
 
 ```bash
-brew tap Fairfarren/tap
-brew install peekgit
+brew tap Fairfarren/peekgit https://github.com/Fairfarren/peekgit
+brew install Fairfarren/peekgit/peekgit
 ```
 
 ### Scoop (推荐 - Windows)
@@ -28,7 +28,7 @@ scoop install https://raw.githubusercontent.com/Fairfarren/peekgit/master/scoop/
 ### Go install
 
 ```bash
-go install github.com/Fairfarren/peekgit/cmd/repo-monitor@latest
+go install github.com/Fairfarren/peekgit/cmd/peekgit@latest
 ```
 
 ### 本地构建
@@ -36,7 +36,7 @@ go install github.com/Fairfarren/peekgit/cmd/repo-monitor@latest
 ```bash
 git clone https://github.com/Fairfarren/peekgit.git
 cd peekgit
-go build -o peekgit ./cmd/repo-monitor
+go build -o peekgit ./cmd/peekgit
 ```
 
 ## 快速开始
@@ -197,7 +197,7 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
 ## 项目结构
 
 ```
-cmd/repo-monitor/      CLI 入口
+cmd/peekgit/           CLI 入口
 internal/
   config/              命令行参数解析与 config.json 解析
   workspace/           仓库有效性验证与绝对路径扫描

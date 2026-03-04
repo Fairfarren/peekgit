@@ -9,7 +9,7 @@ before:
 
 builds:
   - id: peekgit
-    main: ./cmd/repo-monitor
+    main: ./cmd/peekgit
     binary: peekgit
     env:
       - CGO_ENABLED=0
@@ -28,12 +28,14 @@ builds:
 
 archives:
   - id: peekgit
-    builds:
+    ids:
       - peekgit
-    format: tar.gz
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     name_template: >-
       {{ .ProjectName }}_
       {{- .Os }}_
@@ -58,18 +60,17 @@ changelog:
       - Merge pull request
       - Merge branch
 
-# Homebrew Tap 配置 - 发布到 Fairfarren/homebrew-tap 仓库
 brews:
   - name: peekgit
     repository:
       owner: Fairfarren
-      name: homebrew-tap
+      name: peekgit
       branch: "{{ .ProjectName }}-{{ .Version }}"
       pull_request:
         enabled: true
         base:
           owner: Fairfarren
-          name: homebrew-tap
+          name: peekgit
           branch: master
     directory: Formula
     homepage: https://github.com/Fairfarren/peekgit
