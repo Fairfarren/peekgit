@@ -66,7 +66,7 @@ brews:
       name: peekgit
       branch: "{{ .ProjectName }}-{{ .Version }}"
       pull_request:
-        enabled: true
+        enabled: false
         base:
           owner: Fairfarren
           name: peekgit
@@ -92,7 +92,7 @@ scoops:
       name: peekgit
       branch: "{{ .ProjectName }}-{{ .Version }}"
       pull_request:
-        enabled: true
+        enabled: false
         base:
           owner: Fairfarren
           name: peekgit
