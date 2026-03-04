@@ -21,8 +21,8 @@ var (
 	syncDivergedStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8A3DB8", Dark: "#CE93D8"})
 	syncUnknownStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#666666"})
 
-	dirtyStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#D4880F", Dark: "#FFAB40"})
-	labelDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#888888"})
+	dirtyStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#D4880F", Dark: "#FFAB40"})
+	labelDimStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#888888"})
 
 	tabActiveStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Underline(true)
 	tabInactiveStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#666666"})
@@ -40,18 +40,18 @@ var (
 	searchInfoStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
 
 	// Split diff view styles
-	dirStyle          = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
-	panelBorderFocus  = lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}
-	panelBorderBlur   = lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
+	dirStyle         = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
+	panelBorderFocus = lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}
+	panelBorderBlur  = lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
 
 	// File tree styles
-	cursorStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Bold(true)
+	cursorStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Bold(true)
 
 	// Card styles
-	CardStyle         = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#D0D0D0", Dark: "#444444"}).
-				Padding(0, 1)
+	CardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#D0D0D0", Dark: "#444444"}).
+			Padding(0, 1)
 
 	CardSelectedStyle = lipgloss.NewStyle().
 				Border(lipgloss.ThickBorder()).
@@ -59,8 +59,8 @@ var (
 				Padding(0, 1)
 
 	CardHeaderStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#FFFFFF"})
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#FFFFFF"})
 
 	TagStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
@@ -89,10 +89,10 @@ var (
 
 	// Error banner styles
 	ErrorBannerStyle = lipgloss.NewStyle().
-			Background(lipgloss.AdaptiveColor{Light: "#FFEBEE", Dark: "#3D1F1F"}).
-			Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"}).
-			Bold(true).
-			Padding(0, 1)
+				Background(lipgloss.AdaptiveColor{Light: "#FFEBEE", Dark: "#3D1F1F"}).
+				Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"}).
+				Bold(true).
+				Padding(0, 1)
 
 	// File tree styles
 	TreeDirStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"}).Bold(true)
