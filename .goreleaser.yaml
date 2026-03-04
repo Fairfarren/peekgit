@@ -76,6 +76,7 @@ brews:
       name: goreleaserbot
       email: bot@goreleaser.com
     commit_msg_template: "chore(release): brew formula for {{ .Tag }}"
+    skip_upload: true
     install: |-
       bin.install "peekgit"
 
@@ -94,3 +95,4 @@ scoops:
       name: goreleaserbot
       email: bot@goreleaser.com
     commit_msg_template: "chore(release): scoop manifest for {{ .Tag }}"
+    skip_upload: true

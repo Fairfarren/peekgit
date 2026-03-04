@@ -88,3 +88,19 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Commit and push manifest updates
+        run: |
+          # 复制生成的两个文件回到主仓库对应的位置
+          # GoReleaser 默认在 dist/<directory>/<name>.<ext> 生成文件
+          cp dist/Formula/peekgit.rb Formula/
+          cp dist/scoop/peekgit.json scoop/
+
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git add Formula/peekgit.rb scoop/peekgit.json
+          git commit -m "chore(release): update brew formula and scoop manifest [skip ci]" || echo "No changes to commit"
+
+          # 推送到 master 分支
+          git push origin HEAD:master
