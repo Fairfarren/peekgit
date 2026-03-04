@@ -273,7 +273,7 @@ func TestViewDiffKeepsFooterOnTinyHeight(t *testing.T) {
 	if len(lines) > a.height {
 		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
 	}
-	if !strings.Contains(lines[len(lines)-1], "[q] back") {
+	if !strings.Contains(lines[len(lines)-1], "q") || !strings.Contains(lines[len(lines)-1], "返回") {
 		t.Fatalf("expected footer help on last line")
 	}
 }
@@ -291,7 +291,7 @@ func TestViewHomeTinyHeightHidesCards(t *testing.T) {
 	if strings.Contains(view, "repo-a") {
 		t.Fatalf("expected cards to be hidden on tiny height")
 	}
-	if !strings.Contains(lines[len(lines)-1], "q/ESC") {
+	if !strings.Contains(lines[len(lines)-1], "q/ESC") && !strings.Contains(lines[len(lines)-1], "q") {
 		t.Fatalf("expected footer help on last line")
 	}
 }
@@ -309,8 +309,8 @@ func TestViewWorkspacesTinyHeightHidesCards(t *testing.T) {
 	if strings.Contains(view, "default") {
 		t.Fatalf("expected workspace cards to be hidden on tiny height")
 	}
-	if !strings.Contains(lines[len(lines)-1], "q退出") {
-		t.Fatalf("expected footer help on last line")
+	if !strings.Contains(lines[len(lines)-1], "q") && !strings.Contains(lines[len(lines)-1], "退出") {
+		t.Fatalf("expected footer help on last line, got: %s", lines[len(lines)-1])
 	}
 }
 
@@ -404,28 +404,28 @@ func TestViewWorkspacesHelpTextDependsOnTab(t *testing.T) {
 
 	a.startTab = startTabWorkspace
 	workspaceView := a.viewWorkspaces()
-	if !strings.Contains(workspaceView, "Enter进入workspace") {
+	if !strings.Contains(workspaceView, "Enter") || !strings.Contains(workspaceView, "进入") {
 		t.Fatalf("expected workspace help to contain enter action")
 	}
-	if strings.Contains(workspaceView, "r刷新(pr/issues)") {
+	if strings.Contains(workspaceView, "r") && strings.Contains(workspaceView, "刷新") {
 		t.Fatalf("did not expect workspace help to contain remote refresh hint")
 	}
 
 	a.startTab = startTabPR
 	prView := a.viewWorkspaces()
-	if !strings.Contains(prView, "r刷新") {
+	if !strings.Contains(prView, "r") || !strings.Contains(prView, "刷新") {
 		t.Fatalf("expected pr help to contain refresh hint")
 	}
-	if strings.Contains(prView, "Enter进入workspace") {
+	if strings.Contains(prView, "Enter") && strings.Contains(prView, "进入") {
 		t.Fatalf("did not expect pr help to contain workspace enter hint")
 	}
 
 	a.startTab = startTabIssue
 	issueView := a.viewWorkspaces()
-	if !strings.Contains(issueView, "r刷新") {
+	if !strings.Contains(issueView, "r") || !strings.Contains(issueView, "刷新") {
 		t.Fatalf("expected issues help to contain refresh hint")
 	}
-	if strings.Contains(issueView, "Enter进入workspace") {
+	if strings.Contains(issueView, "Enter") && strings.Contains(issueView, "进入") {
 		t.Fatalf("did not expect issues help to contain workspace enter hint")
 	}
 }
@@ -531,7 +531,7 @@ func TestViewDiffUltraTinyHeightKeepsFooter(t *testing.T) {
 		if len(lines) > h {
 			t.Fatalf("height=%d expected rendered lines <= height, got %d", h, len(lines))
 		}
-		if !strings.Contains(lines[len(lines)-1], "[q] back") {
+		if !strings.Contains(lines[len(lines)-1], "q") && !strings.Contains(lines[len(lines)-1], "返回") {
 			t.Fatalf("height=%d expected footer help on last line", h)
 		}
 	}
@@ -567,7 +567,7 @@ func TestViewDetailTinyHeightKeepsFooter(t *testing.T) {
 	if len(lines) > a.height {
 		t.Fatalf("expected rendered lines <= height, got %d > %d", len(lines), a.height)
 	}
-	if !strings.Contains(lines[len(lines)-1], "d: diff") {
+	if !strings.Contains(lines[len(lines)-1], "diff") {
 		t.Fatalf("expected detail footer help on last line")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/Fairfarren/peekgit/internal/model"
 	ghprovider "github.com/Fairfarren/peekgit/internal/provider/github"
 	"github.com/Fairfarren/peekgit/internal/workspace"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -168,6 +169,7 @@ type App struct {
 	loading        bool
 	errText        string
 	refreshLimiter chan struct{}
+	spinner        spinner.Model
 }
 
 func New(cfg config.Config) *App {
@@ -204,6 +206,11 @@ func New(cfg config.Config) *App {
 	}
 	app.refreshLimiter = make(chan struct{}, limiterSize)
 
+	sp := spinner.New()
+	sp.Spinner = spinner.MiniDot
+	sp.Style = loadingStyle
+	app.spinner = sp
+
 	return app
 }
 
@@ -233,6 +240,14 @@ func configWatchTickCmd() tea.Cmd {
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
+	case spinner.TickMsg:
+		if a.loading || a.startLoading || a.diffLoading {
+			var cmd tea.Cmd
+			a.spinner, cmd = a.spinner.Update(msg)
+			return a, cmd
+		}
+		return a, nil
+
 	case tea.WindowSizeMsg:
 		a.width = m.Width
 		a.height = m.Height
@@ -775,11 +790,20 @@ func (a *App) viewWorkspaces() string {
 	}
 	tabLine := strings.Join(tabStrs, "  ")
 
-	helpText := "Tab/←→ 切换页签  1/2/3 快速切换  ↑↓选择  Enter进入workspace  q退出"
+	helpText := HelpKeyStyle.Render("Tab/←→") + HelpDescStyle.Render(" 切换页签  ") +
+		HelpKeyStyle.Render("1/2/3") + HelpDescStyle.Render(" 快速切换  ") +
+		HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+		HelpKeyStyle.Render("Enter") + HelpDescStyle.Render(" 进入  ") +
+		HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
 	if a.startTab == startTabPR || a.startTab == startTabIssue {
-		helpText = "Tab/←→ 切换页签  1/2/3 快速切换  ↑↓选择  r刷新  o打开链接  q退出"
+		helpText = HelpKeyStyle.Render("Tab/←→") + HelpDescStyle.Render(" 切换页签  ") +
+			HelpKeyStyle.Render("1/2/3") + HelpDescStyle.Render(" 快速切换  ") +
+			HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ") +
+			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开链接  ") +
+			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
 	}
-	help := helpStyle.Render(helpText)
+	help := helpText
 	columns := max(1, a.columns)
 
 	headerLines := []string{header, tabLine, ""}
@@ -851,23 +875,18 @@ func (a *App) viewWorkspaces() string {
 }
 
 func (a *App) renderWorkspaceCard(name string, selected bool) string {
-	borderColor := lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
+	style := CardStyle
 	if selected {
-		borderColor = lipgloss.AdaptiveColor{Light: "#2B6FE8", Dark: "#6EA8FF"}
+		style = CardSelectedStyle
 	}
-	s := lipgloss.NewStyle().
-		Width(a.cardWidth).
-		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor)
+	s := style.Width(a.cardWidth)
 
-	nameStr := cardNameStyle.Render(name)
+	nameStr := CardHeaderStyle.Render(name)
 	countStr := labelDimStyle.Render(fmt.Sprintf("%d repos", a.workspaceCounts[name]))
 
-	// Show checking status or update indicator
 	var indicator string
 	if a.workspaceChecking[name] {
-		indicator = " " + loadingStyle.Render("↻")
+		indicator = " " + loadingStyle.Render("↜")
 	} else if a.workspaceHasUpdate[name] {
 		indicator = " " + dirtyStyle.Render("↓")
 	}
@@ -884,7 +903,7 @@ func (a *App) renderStartPRLines(headerLines []string) []string {
 	lines := append([]string{}, headerLines...)
 	lines = a.appendStartRefreshHint(lines)
 	if a.startPRErr != "" {
-		return append(lines, errStyle.Render("错误: "+a.startPRErr))
+		return append(lines, ErrorBannerStyle.Render("⚠ "+a.startPRErr))
 	}
 	if len(a.startPRs) == 0 {
 		if a.startLoading {
@@ -930,7 +949,7 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 	lines := append([]string{}, headerLines...)
 	lines = a.appendStartRefreshHint(lines)
 	if a.startIssueErr != "" {
-		return append(lines, errStyle.Render("错误: "+a.startIssueErr))
+		return append(lines, ErrorBannerStyle.Render("⚠ "+a.startIssueErr))
 	}
 	if len(a.startIssues) == 0 {
 		if a.startLoading {
@@ -964,7 +983,7 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 
 func (a *App) appendStartRefreshHint(lines []string) []string {
 	if a.startLoading {
-		return append(lines, loadingStyle.Render("刷新中..."))
+		return append(lines, a.spinner.View()+" 刷新中...")
 	}
 	if time.Now().Before(a.startRefreshNoticeUntil) {
 		return append(lines, loadingStyle.Render("已触发刷新"))
@@ -1044,21 +1063,29 @@ func (a *App) viewHome() string {
 	if a.gh.Authenticated() {
 		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := helpStyle.Render("↑↓←→/h j k l 选择  Space 进入  / 过滤  r 刷新  f pull  F pull全部  g lazygit  q/ESC 返回")
+	help := HelpKeyStyle.Render("↑↓←→/hjkl") + HelpDescStyle.Render(" 选择  ") +
+		HelpKeyStyle.Render("Space") + HelpDescStyle.Render(" 进入  ") +
+		HelpKeyStyle.Render("/") + HelpDescStyle.Render(" 过滤  ") +
+		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ") +
+		HelpKeyStyle.Render("f") + HelpDescStyle.Render(" pull  ") +
+		HelpKeyStyle.Render("F") + HelpDescStyle.Render(" pull全部  ") +
+		HelpKeyStyle.Render("g") + HelpDescStyle.Render(" lazygit  ") +
+		HelpKeyStyle.Render("q/ESC") + HelpDescStyle.Render(" 返回")
 	if a.filterMode {
-		help = searchInfoStyle.Render("过滤中: ") + a.filterText + helpStyle.Render("  (Enter/ESC 结束)")
+		help = searchInfoStyle.Render("过滤中: ") + a.filterText +
+			HelpDescStyle.Render("  (") + HelpKeyStyle.Render("Enter/ESC") + HelpDescStyle.Render(" 结束)")
 	}
 
 	headerLines := []string{header, tokenState}
 	if a.errText != "" {
-		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
+		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ "+a.errText))
 	}
 	repos := a.filteredRepos()
 	if a.loading {
-		headerLines = append(headerLines, loadingStyle.Render("刷新中..."))
+		headerLines = append(headerLines, a.spinner.View()+" 刷新中...")
 	}
 	if a.loading && len(repos) == 0 {
-		bodyLines := append(headerLines, loadingStyle.Render("刷新中..."), "")
+		bodyLines := append(headerLines, a.spinner.View()+" 刷新中...", "")
 		return composeWithFooter(a.height, bodyLines, help)
 	}
 
@@ -1118,21 +1145,16 @@ func (a *App) viewHome() string {
 }
 
 func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
-	borderColor := lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
+	style := CardStyle
 	if selected {
-		borderColor = lipgloss.AdaptiveColor{Light: "#2B6FE8", Dark: "#6EA8FF"}
+		style = CardSelectedStyle
 	}
-	s := lipgloss.NewStyle().
-		Width(a.cardWidth).
-		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor)
+	s := style.Width(a.cardWidth)
 
-	nameStr := cardNameStyle.Render(repo.Name)
-	syncStr := renderSyncColored(repo.Sync, repo.Ahead, repo.Behind)
+	nameStr := CardHeaderStyle.Render(repo.Name)
 	dirtyStr := ""
 	if repo.Dirty {
-		dirtyStr = dirtyStyle.Render(" ✎")
+		dirtyStr = TagDirtyStyle.Render(" ✎")
 	}
 
 	pr := "-"
@@ -1152,9 +1174,9 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 	if a.repoRefreshing[repo.Path] {
 		line1 += " " + loadingStyle.Render("↻")
 	}
-	line2 := labelDimStyle.Render("branch: ") + repo.Branch + "  " + syncStr
-	line3 := prLabelStyle.Render("PR ") + pr + "  " +
-		issueLabelStyle.Render("Issues ") + issue + errMark
+	line2 := labelDimStyle.Render("branch: ") + repo.Branch + "  " + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind)
+	line3 := TagStyle.Render("PR ") + pr + "  " +
+		TagStyle.Render("Issues ") + issue + errMark
 
 	return s.Render(line1 + "\n" + line2 + "\n" + line3)
 }
@@ -1164,7 +1186,7 @@ func (a *App) viewDetail() string {
 	header := titleStyle.Render(repo.Name) + " " +
 		labelDimStyle.Render("(branch: ") + repo.Branch +
 		labelDimStyle.Render("  status: ") + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) +
-		labelDimStyle.Render(")") + "  " + helpStyle.Render("[q] back")
+		labelDimStyle.Render(")") + "  " + HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
 
 	tabLabels := []string{"PRs", "Issues"}
 	tabStrs := make([]string, len(tabLabels))
@@ -1175,24 +1197,27 @@ func (a *App) viewDetail() string {
 			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
 		}
 	}
-	refreshText := helpStyle.Render("[r] refresh")
+	refreshText := HelpKeyStyle.Render("[r]") + HelpDescStyle.Render(" 刷新")
 	if a.loading {
-		refreshText = loadingStyle.Render("刷新中...")
+		refreshText = a.spinner.View() + " 刷新中..."
 	}
 	headerLines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
 	if a.errText != "" {
-		headerLines = append(headerLines, errStyle.Render("错误: "+a.errText))
+		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ "+a.errText))
 	}
 	if a.remoteErr != "" {
-		headerLines = append(headerLines, errStyle.Render("远端: "+a.remoteErr))
+		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ 远端: "+a.remoteErr))
 	}
 
 	var subHelp string
 	switch a.detailTab {
 	case tabPR:
-		subHelp = helpStyle.Render("↑↓: select  d: diff  o: open")
+		subHelp = HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" diff  ") +
+			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开")
 	case tabIssue:
-		subHelp = helpStyle.Render("↑↓: select  o: open")
+		subHelp = HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开")
 	}
 
 	// Calculate available height for the list
@@ -1259,12 +1284,12 @@ func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
 
 func (a *App) viewDiff() string {
 	if a.diffLoading {
-		return loadingStyle.Render(" 加载 diff 中...")
+		return a.spinner.View() + " 加载 diff 中..."
 	}
 
 	// Handle tiny height - just show help
 	if a.height <= 1 {
-		return helpStyle.Render("[q] back")
+		return HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
 	}
 
 	// For small screens, use single panel layout (no file tree)
@@ -1305,7 +1330,7 @@ func (a *App) viewDiff() string {
 
 	// Build left panel (file tree)
 	leftTitle := dirStyle.Render(" Files ")
-	leftContent := a.renderFileTree(leftWidth-2, contentHeight-1) // -1 for title
+	leftContent := a.renderFileTree(leftWidth-4, contentHeight-1) // -4 for borders(2) + padding(2), -1 for title
 	leftBorder := panelBorderBlur
 	if a.diffFocusLeft {
 		leftBorder = panelBorderFocus
@@ -1313,6 +1338,7 @@ func (a *App) viewDiff() string {
 	leftPanel := lipgloss.NewStyle().
 		Width(leftWidth).
 		Height(contentHeight).
+		Padding(0, 1).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(leftBorder).
 		Render(leftTitle + "\n" + leftContent)
@@ -1334,6 +1360,7 @@ func (a *App) viewDiff() string {
 	rightPanel := lipgloss.NewStyle().
 		Width(rightWidth).
 		Height(contentHeight).
+		Padding(0, 1).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(rightBorder).
 		Render(rightTitle + "\n" + a.diffViewport.View())
@@ -1342,16 +1369,22 @@ func (a *App) viewDiff() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Build help text with panel indicator
-	panelHint := "[Files]"
-	if !a.diffFocusLeft {
-		panelHint = "[Diff]"
+	panelHint := HelpDescStyle.Render("[")
+	if a.diffFocusLeft {
+		panelHint += HelpKeyStyle.Render("Files")
+	} else {
+		panelHint += HelpKeyStyle.Render("Diff")
 	}
+	panelHint += HelpDescStyle.Render("]")
 	fileCount := 0
 	if a.diffTree != nil {
 		fileCount = len(a.diffTree.Files)
 	}
-	help := helpStyle.Render(fmt.Sprintf("%s %s  ↑↓选择  ←→切换面板  [q]退出  [%d files]",
-		panelHint, cursorStyle.Render("●"), fileCount))
+	help := panelHint + HelpDescStyle.Render("  ") +
+		HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render("选择  ") +
+		HelpKeyStyle.Render("←→") + HelpDescStyle.Render("切换面板  ") +
+		HelpDescStyle.Render("[") + HelpKeyStyle.Render("q") + HelpDescStyle.Render("]退出  ") +
+		cursorStyle.Render("●") + HelpDescStyle.Render(fmt.Sprintf(" %d files", fileCount))
 	lines := []string{"", panels, help}
 
 	return strings.Join(lines, "\n")
@@ -1360,7 +1393,7 @@ func (a *App) viewDiff() string {
 // viewDiffSimple renders a simple single-panel diff view for small screens
 func (a *App) viewDiffSimple() string {
 	header := diffHeaderStyle.Render("Diff")
-	help := helpStyle.Render("[q] back")
+	help := HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
 
 	headerLines := []string{header}
 
@@ -1452,7 +1485,7 @@ func (a *App) renderFileTree(width, height int) string {
 
 	// Pad with empty lines if needed
 	for len(lines) < height {
-		lines = append(lines, "")
+		lines = append(lines, strings.Repeat(" ", width))
 	}
 
 	return strings.Join(lines, "\n")
@@ -1500,63 +1533,55 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 	indentStr := strings.Repeat("  ", tl.indent)
 
 	if tl.isDir {
-		// Directory line - build plain text first
 		plainText := indentStr + "📂 " + tl.name + "/"
-		// Truncate plain text if too long
 		if lipgloss.Width(plainText) > width {
-			// Truncate name to fit
-			maxNameLen := width - len(indentStr) - 4 // 4 for "📂 " and "/"
+			maxNameLen := width - len(indentStr) - 4
 			if maxNameLen > 0 && len(tl.name) > maxNameLen {
 				plainText = indentStr + "📂 " + tl.name[:maxNameLen-1] + "…/"
 			}
 		}
-		return dirStyle.Render(plainText)
+		return TreeDirStyle.Render(plainText)
 	}
 
-	// File line
 	isSelected := (tl.fileIndex == a.diffFileIdx)
 	f := tl.file
 
-	// Status indicator
-	var statusSquare string
+	var statusIcon string
 	switch {
 	case f.IsNew:
-		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FD97F")).Render("■")
+		statusIcon = FileStatusNewStyle.Render("+")
 	case f.IsDelete:
-		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Render("■")
-	case f.OldPath != "" && f.OldPath != f.Path:
-		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Render("■")
+		statusIcon = FileStatusDelStyle.Render("-")
 	default:
-		statusSquare = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Render("■")
+		statusIcon = FileStatusModStyle.Render("~")
 	}
 
-	// Format stats
 	statsStr := ""
 	if f.AddLines > 0 || f.DelLines > 0 {
 		statsStr = fmt.Sprintf(" (+%d/-%d)", f.AddLines, f.DelLines)
 	}
 
-	// Build styled line
-	line := indentStr + "  " + statusSquare + " " + tl.name
+	// Build base line
+	line := indentStr + " " + statusIcon + " " + tl.name
 	if statsStr != "" {
 		line += labelDimStyle.Render(statsStr)
 	}
 
-	// Re-apply truncation to styled line if needed
+	// Apply truncation if needed
 	if lipgloss.Width(line) > width {
-		availableForName := width - lipgloss.Width(indentStr+"  ") - lipgloss.Width(statsStr) - lipgloss.Width("■ ")
+		availableForName := width - lipgloss.Width(indentStr+" ") - lipgloss.Width(statsStr) - lipgloss.Width("+ ")
 		if availableForName > 3 && len(tl.name) > availableForName {
 			truncatedName := tl.name[:availableForName-1] + "…"
-			line = indentStr + "  " + statusSquare + " " + truncatedName + labelDimStyle.Render(statsStr)
+			line = indentStr + " " + statusIcon + " " + truncatedName
+			if statsStr != "" {
+				line += labelDimStyle.Render(statsStr)
+			}
 		}
 	}
 
 	// Apply selection style
 	if isSelected {
-		line = lipgloss.NewStyle().
-			Background(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#1A5CCC"}).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Render(line)
+		line = TreeSelectedStyle.Render(line)
 	}
 
 	return line
@@ -1566,8 +1591,11 @@ func composeWithFooter(height int, bodyLines []string, footer string) string {
 	if height <= 0 {
 		return ""
 	}
+
+	styledFooter := HelpBarStyle.Render(footer)
+
 	if height == 1 {
-		return footer
+		return styledFooter
 	}
 
 	maxBodyLines := height - 1
@@ -1576,7 +1604,7 @@ func composeWithFooter(height int, bodyLines []string, footer string) string {
 	}
 
 	lines := append([]string{}, bodyLines...)
-	lines = append(lines, footer)
+	lines = append(lines, styledFooter)
 	return strings.Join(lines, "\n")
 }
 
@@ -1905,7 +1933,8 @@ func calcWorkspaceCounts(ws config.WorkspaceMap, keys []string) map[string]int {
 
 func (a *App) recomputeGrid() {
 	availableWidth := max(20, a.width-4)
-	a.columns = computeColumns(availableWidth, cardMinWidth, cardGap)
+	minWidth := getResponsiveCardMinWidth(a.width)
+	a.columns = computeColumns(availableWidth, minWidth, cardGap)
 	a.cardWidth = computeCardWidth(availableWidth, a.columns, cardGap)
 
 	if a.screen == screenWorkspaces {

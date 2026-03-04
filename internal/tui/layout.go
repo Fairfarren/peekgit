@@ -1,5 +1,18 @@
 package tui
 
+func getResponsiveCardMinWidth(termWidth int) int {
+	switch {
+	case termWidth >= 200:
+		return 50
+	case termWidth >= 120:
+		return 44
+	case termWidth >= 80:
+		return 35
+	default:
+		return 25
+	}
+}
+
 func computeColumns(availableWidth int, cardMinWidth int, gap int) int {
 	if availableWidth <= 0 {
 		return 1
