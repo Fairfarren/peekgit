@@ -5,21 +5,21 @@
 class Peekgit < Formula
   desc "终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。"
   homepage "https://github.com/Fairfarren/peekgit"
-  version "0.1.0"
+  version "0.1.5"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_darwin_x86_64.tar.gz"
-      sha256 "704f297db968b9055c6e4bc20b18c44ad79a8e8ae9a380cfc5ffbeaf56c71632"
+      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.5/peekgit_darwin_x86_64.tar.gz"
+      sha256 "b43e8a933b268f1881df56c24c3ef122a6b5a8fd9fbf1194d194a9525edf73b4"
 
       define_method(:install) do
         bin.install "peekgit"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_darwin_arm64.tar.gz"
-      sha256 "d4d6227163ea4fcff025594f74d4e321d21135657e483af2298db5e0c78fcfcd"
+      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.5/peekgit_darwin_arm64.tar.gz"
+      sha256 "8608384f0e43210ae22dcc24bfe3c398d11f6c35e254036ef2c24cc6d27f2789"
 
       define_method(:install) do
         bin.install "peekgit"
@@ -29,15 +29,15 @@ class Peekgit < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_linux_x86_64.tar.gz"
-      sha256 "b47c9ef872e507334853a0f06ac02815fc261f57d1ad93cf35ecb88d73d5eb73"
+      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.5/peekgit_linux_x86_64.tar.gz"
+      sha256 "b68252fffb603aa3a4f75d9e4404bb76b2bbedb96dca3b07114d4af9d31756df"
       define_method(:install) do
         bin.install "peekgit"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.0/peekgit_linux_arm64.tar.gz"
-      sha256 "1206af80f1ebbe14527f37e9ba75f7e63899609511ac82f2dcb6743a7b95e853"
+      url "https://github.com/Fairfarren/peekgit/releases/download/v0.1.5/peekgit_linux_arm64.tar.gz"
+      sha256 "f5ac56560ee1f1ec71d0d20b036761de721e95bb3d7801537eba720f2cda32da"
       define_method(:install) do
         bin.install "peekgit"
       end
