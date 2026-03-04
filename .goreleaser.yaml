@@ -58,18 +58,18 @@ changelog:
       - Merge pull request
       - Merge branch
 
-# Homebrew Tap 配置 - 发布到当前仓库的 Formula/ 目录
+# Homebrew Tap 配置 - 发布到 Fairfarren/homebrew-tap 仓库
 brews:
   - name: peekgit
     repository:
       owner: Fairfarren
-      name: peekgit
+      name: homebrew-tap
       branch: "{{ .ProjectName }}-{{ .Version }}"
       pull_request:
         enabled: true
         base:
           owner: Fairfarren
-          name: peekgit
+          name: homebrew-tap
           branch: master
     directory: Formula
     homepage: https://github.com/Fairfarren/peekgit
