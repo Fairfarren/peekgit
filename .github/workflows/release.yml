@@ -11,17 +11,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  # 手动 tag 发布 - 当推送 v* 标签时触发
-  manual-release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  # 1. 自动 patch 版本打 Tag - 当推送到 master 分支时触发
+  auto-patch-tag:
+    if: github.ref == 'refs/heads/master' && !startsWith(github.event.head_commit.message, 'chore(release):') && !startsWith(github.event.head_commit.message, 'Merge pull request')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.ref }}
-
       - name: Generate App Token
         id: app-token
         uses: actions/create-github-app-token@v1
@@ -29,29 +23,12 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-
-  # 自动 patch 版本发布 - 当推送到 master 分支且不是 release commit 或 GoReleaser PR 合并时触发
-  auto-patch-release:
-    if: github.ref == 'refs/heads/master' && !startsWith(github.event.head_commit.message, 'chore(release):') && !startsWith(github.event.head_commit.message, 'Merge pull request')
-    runs-on: ubuntu-latest
-    steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # 这里使用 App Token 检出，后续推送的 tag 会带有 App 权限，从而能够正常触发下方的 release 工作流
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get current version and create new patch version
         id: get-version
@@ -73,19 +50,23 @@ jobs:
 
       - name: Configure git
         run: |
-          git config --global user.name 'github-actions'
-          git config --global user.email 'github-actions@github.com'
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
       - name: Create and push new patch tag
         run: |
           git tag ${{ steps.get-version.outputs.new_version }}
           git push origin ${{ steps.get-version.outputs.new_version }}
 
-      - name: Checkout Tag
+  # 2. 发布 - 不论是自动打的还是手动的 Tag，只要有 v* 的 Tag 被推送就执行发布
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ steps.get-version.outputs.new_version }}
 
       - name: Generate App Token
         id: app-token
