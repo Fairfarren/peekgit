@@ -96,3 +96,4 @@ scoops:
       email: bot@goreleaser.com
     commit_msg_template: "chore(release): scoop manifest for {{ .Tag }}"
     skip_upload: true
+    skip_upload: true

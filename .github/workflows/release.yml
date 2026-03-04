@@ -91,10 +91,10 @@ jobs:
 
       - name: Commit and push manifest updates
         run: |
-          # 复制生成的两个文件回到主仓库对应的位置
-          # GoReleaser 默认在 dist/<directory>/<name>.<ext> 生成文件
-          cp dist/Formula/peekgit.rb Formula/
-          cp dist/scoop/peekgit.json scoop/
+          # 动态搜索并复制生成的两个文件回到主仓库对应的位置
+          # 这样无论 GoReleaser 的子路径如何变化都能准确定位
+          find dist -name "peekgit.rb" -exec cp {} Formula/ \;
+          find dist -name "peekgit.json" -exec cp {} scoop/ \;
 
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
