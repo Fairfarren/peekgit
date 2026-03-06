@@ -144,13 +144,14 @@ type App struct {
 	filterMode bool
 	filterText string
 
-	screen      screen
-	detailTab   tab
-	detailPRIdx int
-	detailISIdx int
-	prList      []model.PullRequestItem
-	issues      []model.IssueItem
-	remoteErr   string
+	screen           screen
+	diffSourceScreen screen
+	detailTab        tab
+	detailPRIdx      int
+	detailISIdx      int
+	prList           []model.PullRequestItem
+	issues           []model.IssueItem
+	remoteErr        string
 
 	diffViewport viewport.Model
 	diffContent  string
@@ -520,6 +521,15 @@ func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "o":
 		return a, a.openWorkspaceTabCurrentURLCmd()
+	case "d":
+		if a.startTab == startTabPR && len(a.startPRs) > 0 {
+			a.screen = screenDiff
+			a.diffSourceScreen = screenWorkspaces
+			a.diffLoading = true
+			a.diffViewport = viewport.New(max(20, a.width-2), max(5, a.height-4))
+			pr := a.startPRs[a.startPRIdx]
+			return a, a.loadAccountPRDiffCmd(pr.RepoFull, pr.Number)
+		}
 	case " ", "enter":
 		if a.startTab != startTabWorkspace {
 			return a, nil
@@ -662,6 +672,7 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		if a.detailTab == tabPR && len(a.prList) > 0 {
 			a.screen = screenDiff
+			a.diffSourceScreen = screenDetail
 			a.diffLoading = true
 			a.diffViewport = viewport.New(max(20, a.width-2), max(5, a.height-4))
 			return a, a.loadPRDiffCmd(current, a.prList[a.detailPRIdx].Number)
@@ -693,7 +704,7 @@ func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global keys
 	switch key {
 	case "q":
-		a.screen = screenDetail
+		a.screen = a.diffSourceScreen
 		return a, nil
 	case "tab":
 		// Toggle between panels (only in split mode)
@@ -799,8 +810,11 @@ func (a *App) viewWorkspaces() string {
 		helpText = HelpKeyStyle.Render("Tab/←→") + HelpDescStyle.Render(" 切换页签  ") +
 			HelpKeyStyle.Render("1/2/3") + HelpDescStyle.Render(" 快速切换  ") +
 			HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
-			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ") +
-			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开链接  ") +
+			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ")
+		if a.startTab == startTabPR {
+			helpText += HelpKeyStyle.Render("d") + HelpDescStyle.Render(" diff  ")
+		}
+		helpText += HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开链接  ") +
 			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
 	}
 	help := helpText
@@ -1745,6 +1759,23 @@ func (a *App) loadPRDiffCmd(repo model.RepoStatus, number int) tea.Cmd {
 		if err != nil {
 			return diffLoadedMsg{err: err}
 		}
+		diff, err := a.gh.PullRequestDiff(ctx, owner, rname, number)
+		if err != nil {
+			return diffLoadedMsg{err: err}
+		}
+		return diffLoadedMsg{content: diff}
+	}
+}
+
+func (a *App) loadAccountPRDiffCmd(repoFull string, number int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		parts := strings.Split(repoFull, "/")
+		if len(parts) != 2 {
+			return diffLoadedMsg{err: fmt.Errorf("invalid repo name: %s", repoFull)}
+		}
+		owner, rname := parts[0], parts[1]
 		diff, err := a.gh.PullRequestDiff(ctx, owner, rname, number)
 		if err != nil {
 			return diffLoadedMsg{err: err}
