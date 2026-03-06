@@ -2,3 +2,9 @@
 /repo-monitor
 coverage.out
 *.coverprofile
+
+.opencode
+
+.specify
+
+specs
