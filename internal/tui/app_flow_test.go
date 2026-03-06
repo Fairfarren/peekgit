@@ -184,6 +184,7 @@ func TestUpdateDetailPRAndIssueCursorMove(t *testing.T) {
 func TestUpdateDiffQBackToDetail(t *testing.T) {
 	a := newTestApp()
 	a.screen = screenDiff
+	a.diffSourceScreen = screenDetail
 	_, _ = a.updateDiff(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if a.screen != screenDetail {
 		t.Fatalf("expected detail")
