@@ -271,6 +271,7 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 			}
 			createdByMe := strings.EqualFold(it.GetUser().GetLogin(), login)
 			state := strings.ToUpper(it.GetState())
+			labels := issueLabelNames(it)
 
 			if existing, ok := merged[key]; ok {
 				existing.CreatedByMe = existing.CreatedByMe || createdByMe
@@ -278,6 +279,7 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 				if it.GetUpdatedAt().After(existing.UpdatedAt) {
 					existing.UpdatedAt = it.GetUpdatedAt().Time
 					existing.Title = it.GetTitle()
+					existing.Labels = labels
 					existing.HTMLURL = it.GetHTMLURL()
 					existing.StateLabel = state
 				}
@@ -289,6 +291,7 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 			merged[key] = model.AccountIssueItem{
 				Number:       it.GetNumber(),
 				Title:        it.GetTitle(),
+				Labels:       labels,
 				RepoFull:     repoFull,
 				UpdatedAt:    it.GetUpdatedAt().Time,
 				HTMLURL:      it.GetHTMLURL(),
@@ -329,6 +332,18 @@ func buildIssueStateLabel(state string, createdByMe bool, assignedToMe bool) str
 	default:
 		return stateLabel
 	}
+}
+
+func issueLabelNames(it *gh.Issue) []string {
+	out := make([]string, 0, len(it.Labels))
+	for _, l := range it.Labels {
+		name := strings.TrimSpace(l.GetName())
+		if name == "" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (c *Client) pullRequestCIState(ctx context.Context, repoFull string, number int) string {

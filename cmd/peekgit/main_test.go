@@ -16,6 +16,17 @@ func TestRunInvalidFlag(t *testing.T) {
 	}
 }
 
+func TestRunHelpFlag(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	code := run([]string{"-h"}, buf)
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected error output: %q", buf.String())
+	}
+}
+
 func TestRunSuccess(t *testing.T) {
 	orig := runProgram
 	runProgram = func(_ tea.Model) error { return nil }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +26,9 @@ func main() {
 func run(args []string, errOut io.Writer) int {
 	cfg, err := config.Parse(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		if _, writeErr := fmt.Fprintf(errOut, "参数解析失败: %v\n", err); writeErr != nil {
 			return 2
 		}

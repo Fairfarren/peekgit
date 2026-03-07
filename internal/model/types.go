@@ -83,6 +83,7 @@ type AccountPullRequestItem struct {
 type AccountIssueItem struct {
 	Number       int
 	Title        string
+	Labels       []string
 	RepoFull     string
 	UpdatedAt    time.Time
 	HTMLURL      string

@@ -107,3 +107,62 @@ func TestExpandWildcardPathEmptyPath(t *testing.T) {
 	}
 	t.Logf("expandWildcardPath(\"\") returned %d repos", len(repos))
 }
+
+func TestScanReposWithDepth(t *testing.T) {
+	root := t.TempDir()
+	rootRepo := filepath.Join(root, "root-repo")
+	childRepo := filepath.Join(root, "group", "child-repo")
+	grandchildRepo := filepath.Join(root, "group", "nested", "grandchild-repo")
+
+	_ = os.MkdirAll(filepath.Join(rootRepo, ".git"), 0o755)
+	_ = os.MkdirAll(filepath.Join(childRepo, ".git"), 0o755)
+	_ = os.MkdirAll(filepath.Join(grandchildRepo, ".git"), 0o755)
+
+	repos0, err := ScanReposWithDepth(root, 0)
+	if err != nil {
+		t.Fatalf("scan depth 0 failed: %v", err)
+	}
+	if len(repos0) != 0 {
+		t.Fatalf("depth 0 repo count = %d, want 0", len(repos0))
+	}
+
+	repos1, err := ScanReposWithDepth(root, 1)
+	if err != nil {
+		t.Fatalf("scan depth 1 failed: %v", err)
+	}
+	if len(repos1) != 1 || repos1[0].Name != "root-repo" {
+		t.Fatalf("depth 1 repos = %+v", repos1)
+	}
+
+	repos2, err := ScanReposWithDepth(root, 2)
+	if err != nil {
+		t.Fatalf("scan depth 2 failed: %v", err)
+	}
+	if len(repos2) != 2 {
+		t.Fatalf("depth 2 repo count = %d, want 2", len(repos2))
+	}
+
+	repos3, err := ScanReposWithDepth(root, 3)
+	if err != nil {
+		t.Fatalf("scan depth 3 failed: %v", err)
+	}
+	if len(repos3) != 3 {
+		t.Fatalf("depth 3 repo count = %d, want 3", len(repos3))
+	}
+}
+
+func TestScanReposWithDepthIncludesRootRepo(t *testing.T) {
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, ".git"), 0o755)
+
+	repos, err := ScanReposWithDepth(root, 0)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("repo count = %d, want 1", len(repos))
+	}
+	if repos[0].Path != root {
+		t.Fatalf("repo path = %q, want %q", repos[0].Path, root)
+	}
+}

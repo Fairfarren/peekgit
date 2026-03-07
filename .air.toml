@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./peekgit ./cmd/peekgit"
+entrypoint = ["./peekgit"]
+include_ext = ["go"]
+include_dir = ["cmd", "internal"]
+exclude_dir = [".git", "vendor", "tmp", "specs", ".opencode", ".idea", ".vscode"]
+stop_on_error = true
+send_interrupt = true
+
+[log]
+time = false

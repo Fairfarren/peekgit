@@ -46,6 +46,113 @@ func TestParseFlags(t *testing.T) {
 	}
 }
 
+func TestParseWorkspaceFlagNoValueUsesDepthOne(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	absRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+
+	cfg, err := Parse([]string{"-workspaces"})
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if !cfg.WorkspaceMode {
+		t.Fatalf("workspace mode should be enabled")
+	}
+	if cfg.WorkspaceDepth != 1 {
+		t.Fatalf("workspace depth = %d, want 1", cfg.WorkspaceDepth)
+	}
+	if cfg.WorkspaceRoot != absRoot {
+		t.Fatalf("workspace root = %q, want %q", cfg.WorkspaceRoot, absRoot)
+	}
+	paths := cfg.Global.Workspaces[absRoot]
+	if len(paths) != 1 || paths[0] != absRoot {
+		t.Fatalf("unexpected workspace paths: %+v", paths)
+	}
+}
+
+func TestParseWorkspaceFlagWithDepth(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+
+	cfg, err := Parse([]string{"-workspaces", "2"})
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if !cfg.WorkspaceMode {
+		t.Fatalf("workspace mode should be enabled")
+	}
+	if cfg.WorkspaceDepth != 2 {
+		t.Fatalf("workspace depth = %d, want 2", cfg.WorkspaceDepth)
+	}
+}
+
+func TestParseWorkspaceFlagNormalizesNegativeDepth(t *testing.T) {
+	cfg, err := Parse([]string{"-workspaces=-3"})
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if cfg.WorkspaceDepth != 0 {
+		t.Fatalf("workspace depth = %d, want 0", cfg.WorkspaceDepth)
+	}
+}
+
+func TestParseWorkspaceFlagIgnoresBrokenGlobalConfig(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	configDir := filepath.Join(home, ".config", "peekgit")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+
+	cfg, err := Parse([]string{"-workspaces"})
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if !cfg.WorkspaceMode {
+		t.Fatalf("workspace mode should be enabled")
+	}
+}
+
 func TestLoadGlobalConfigExpandHomePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

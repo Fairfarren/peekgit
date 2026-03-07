@@ -226,11 +226,11 @@ func TestListMyPullRequestsAndIssues(t *testing.T) {
 			return
 		}
 		if q == "is:issue is:open author:me" {
-			_, _ = w.Write([]byte(`{"items":[{"number":21,"title":"my-issue","state":"open","updated_at":"2026-01-04T00:00:00Z","html_url":"http://x/i/21","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":24,"title":"closed-authored-issue","state":"closed","updated_at":"2026-01-08T00:00:00Z","html_url":"http://x/i/24","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":23,"title":"pr-should-be-filtered","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/p/23","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"me"},"pull_request":{"url":"x"}}]}`))
+			_, _ = w.Write([]byte(`{"items":[{"number":21,"title":"my-issue","state":"open","labels":[{"name":"bug"}],"updated_at":"2026-01-04T00:00:00Z","html_url":"http://x/i/21","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":24,"title":"closed-authored-issue","state":"closed","updated_at":"2026-01-08T00:00:00Z","html_url":"http://x/i/24","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":23,"title":"pr-should-be-filtered","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/p/23","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"me"},"pull_request":{"url":"x"}}]}`))
 			return
 		}
 		if q == "is:issue is:open assignee:me" {
-			_, _ = w.Write([]byte(`{"items":[{"number":21,"title":"my-issue","state":"open","updated_at":"2026-01-04T00:00:00Z","html_url":"http://x/i/21","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":22,"title":"assigned-issue","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/i/22","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"assignees":[{"login":"me"}]},{"number":25,"title":"closed-assigned-issue","state":"closed","updated_at":"2026-01-09T00:00:00Z","html_url":"http://x/i/25","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"assignees":[{"login":"me"}]},{"number":23,"title":"pr-should-be-filtered","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/p/23","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"pull_request":{"url":"x"}}]}`))
+			_, _ = w.Write([]byte(`{"items":[{"number":21,"title":"my-issue","state":"open","labels":[{"name":"bug"}],"updated_at":"2026-01-04T00:00:00Z","html_url":"http://x/i/21","repository_url":"https://api.github.com/repos/o/r","user":{"login":"me"},"assignees":[{"login":"me"}]},{"number":22,"title":"assigned-issue","state":"open","labels":[{"name":"enhancement"}],"updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/i/22","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"assignees":[{"login":"me"}]},{"number":25,"title":"closed-assigned-issue","state":"closed","updated_at":"2026-01-09T00:00:00Z","html_url":"http://x/i/25","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"assignees":[{"login":"me"}]},{"number":23,"title":"pr-should-be-filtered","state":"open","updated_at":"2026-01-05T00:00:00Z","html_url":"http://x/p/23","repository_url":"https://api.github.com/repos/o/r2","user":{"login":"other"},"pull_request":{"url":"x"}}]}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -280,8 +280,14 @@ func TestListMyPullRequestsAndIssues(t *testing.T) {
 	if issues[0].Number != 22 || issues[0].CreatedByMe || !issues[0].AssignedToMe {
 		t.Fatalf("expected first issue only assigned to me and latest updated: %+v", issues[0])
 	}
+	if len(issues[0].Labels) != 1 || issues[0].Labels[0] != "enhancement" {
+		t.Fatalf("expected labels on first issue, got=%v", issues[0].Labels)
+	}
 	if issues[1].Number != 21 || !issues[1].CreatedByMe || !issues[1].AssignedToMe {
 		t.Fatalf("expected second issue merged as created+assigned by me: %+v", issues[1])
+	}
+	if len(issues[1].Labels) != 1 || issues[1].Labels[0] != "bug" {
+		t.Fatalf("expected labels on merged issue, got=%v", issues[1].Labels)
 	}
 }
 

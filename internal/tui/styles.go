@@ -144,11 +144,11 @@ func getBorderStyle(focused bool) lipgloss.Style {
 func getSelectionStyle(focused bool) lipgloss.Style {
 	if focused {
 		return lipgloss.NewStyle().
-			Background(lipgloss.AdaptiveColor{Light: "#D0E8FF", Dark: "#1A3A5C"}).
-			Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).
+			Background(lipgloss.AdaptiveColor{Light: "#DDF5E3", Dark: "#1C3A2A"}).
+			Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"}).
 			Bold(true)
 	}
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).
+		Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"}).
 		Bold(true)
 }
