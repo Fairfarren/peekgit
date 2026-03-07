@@ -146,12 +146,35 @@ func (c *Client) PullRequestDiff(ctx context.Context, owner string, repo string,
 	if v, ok := c.diffCache.Get(cacheKey, time.Now()); ok {
 		return v, nil
 	}
-	raw, _, err := c.client.PullRequests.GetRaw(ctx, owner, repo, number, gh.RawOptions{Type: gh.Diff})
+	raw, resp, err := c.client.PullRequests.GetRaw(ctx, owner, repo, number, gh.RawOptions{Type: gh.Diff})
 	if err != nil {
 		return "", err
 	}
+	if resp.StatusCode == 406 {
+		return "", errors.New("diff-too-large")
+	}
 	c.diffCache.Set(cacheKey, raw, time.Now())
 	return raw, nil
+}
+
+func (c *Client) ListPRFiles(ctx context.Context, owner string, repo string, number int) ([]*gh.CommitFile, error) {
+	if !c.Authenticated() {
+		return nil, ErrUnauthenticated
+	}
+	opt := &gh.ListOptions{PerPage: 100}
+	var allFiles []*gh.CommitFile
+	for {
+		files, resp, err := c.client.PullRequests.ListFiles(ctx, owner, repo, number, opt)
+		if err != nil {
+			return nil, err
+		}
+		allFiles = append(allFiles, files...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+	return allFiles, nil
 }
 
 func (c *Client) ListMyPullRequests(ctx context.Context) ([]model.AccountPullRequestItem, error) {
