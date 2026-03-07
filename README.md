@@ -2,6 +2,12 @@
 
 终端里的多仓库监控面板。一次性查看 workspace 下所有 Git 仓库的分支状态、同步情况，以及 GitHub PR / Issues。
 
+## 环境要求 (Environment Requirements)
+
+*   **Git**: 最低要求 **2.7.0** (推荐 **2.13.0+**)，用于解析本地仓库状态和远程 URL。
+*   **GitHub CLI (gh)**: 最低要求 **2.0.0** (推荐 **最新版**)，用于通过 `gh auth token` 自动获取认证信息。
+*   **Go**: **1.21+** (仅限从源码构建)。
+
 ## 安装
 
 ### Homebrew (推荐 - macOS/Linux)
@@ -38,6 +44,12 @@ git clone https://github.com/Fairfarren/peekgit.git
 cd peekgit
 go build -o peekgit ./cmd/peekgit
 ```
+
+### 外部依赖 (Lazygit)
+
+PeekGit 集成了 [Lazygit](https://github.com/jesseduffield/lazygit) 终端 UI，用于在仓库详情中通过快捷键 `g` 快速打开。
+
+由于 Lazygit 是一个独立的二进制文件，你需要根据其 [官方安装文档](https://github.com/jesseduffield/lazygit#installation) 手动下载并安装到你的 `PATH` 中。
 
 ## 快速开始
 
@@ -185,6 +197,10 @@ PeekGit 使用全局配置文件 `~/.config/peekgit/config.json` 来定义你的
 |------|------|
 | ↻ | 正在检查远端更新 |
 | ↓ | 有仓库需要 pull |
+
+## 致谢 (Credits)
+
+特别感谢 [Lazygit](https://github.com/jesseduffield/lazygit) 项目，它为 PeekGit 提供了出色的终端 Git 管理体验。
 
 ## 开源协作
 
