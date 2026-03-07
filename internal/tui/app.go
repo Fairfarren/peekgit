@@ -1766,7 +1766,7 @@ func (a *App) loadAccountPRDiffCmd(repoFull string, number int) tea.Cmd {
 
 func (a *App) fetchDiffOrFiles(ctx context.Context, owner, repo string, number int) tea.Msg {
 	diff, err := a.gh.PullRequestDiff(ctx, owner, repo, number)
-	if err != nil && err.Error() == "diff-too-large" {
+	if err != nil && errors.Is(err, ghprovider.ErrDiffTooLarge) {
 		ghFiles, err := a.gh.ListPRFiles(ctx, owner, repo, number)
 		if err != nil {
 			return diffLoadedMsg{err: err}

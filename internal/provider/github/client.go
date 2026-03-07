@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -17,6 +18,7 @@ import (
 )
 
 var ErrUnauthenticated = errors.New("unauthenticated")
+var ErrDiffTooLarge = errors.New("diff-too-large")
 
 var runGhAuthToken = func(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "auth", "token")
@@ -149,7 +151,7 @@ func (c *Client) PullRequestDiff(ctx context.Context, owner string, repo string,
 	raw, resp, err := c.client.PullRequests.GetRaw(ctx, owner, repo, number, gh.RawOptions{Type: gh.Diff})
 	if err != nil {
 		if resp != nil && resp.StatusCode == 406 {
-			return "", errors.New("diff-too-large")
+			return "", ErrDiffTooLarge
 		}
 		return "", err
 	}
@@ -166,7 +168,7 @@ func (c *Client) ListPRFiles(ctx context.Context, owner string, repo string, num
 	for {
 		files, resp, err := c.client.PullRequests.ListFiles(ctx, owner, repo, number, opt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list PR files: %w", err)
 		}
 		allFiles = append(allFiles, files...)
 		if resp.NextPage == 0 {

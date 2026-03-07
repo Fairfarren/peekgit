@@ -2,9 +2,11 @@ package github
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +106,44 @@ func TestListPRsIssuesAndDiff(t *testing.T) {
 	diff, err := c.PullRequestDiff(context.Background(), "o", "r", 1)
 	if err != nil || diff == "" {
 		t.Fatalf("diff err=%v", err)
+	}
+}
+
+func TestPullRequestDiffTooLarge(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/1", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotAcceptable) // 406
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	apiURL := srv.URL + "/"
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(apiURL, apiURL)
+	c := &Client{client: ghc, auth: true, diffCache: cache.NewTTLCache[string](time.Minute)}
+
+	_, err := c.PullRequestDiff(context.Background(), "o", "r", 1)
+	if !errors.Is(err, ErrDiffTooLarge) {
+		t.Fatalf("expected ErrDiffTooLarge, got %v", err)
+	}
+}
+
+func TestListPRFilesErrorWrapping(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/1/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	apiURL := srv.URL + "/"
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(apiURL, apiURL)
+	c := &Client{client: ghc, auth: true}
+
+	_, err := c.ListPRFiles(context.Background(), "o", "r", 1)
+	if err == nil || !strings.Contains(err.Error(), "list PR files:") {
+		t.Fatalf("expected wrapped error, got %v", err)
 	}
 }
 
