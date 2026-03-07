@@ -5,6 +5,8 @@ import (
 
 	"github.com/Fairfarren/peekgit/internal/config"
 	"github.com/Fairfarren/peekgit/internal/model"
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestFilteredRepos(t *testing.T) {
@@ -27,6 +29,45 @@ func TestRecomputeGrid(t *testing.T) {
 	}
 	if a.cardWidth <= 0 {
 		t.Fatalf("card width=%d", a.cardWidth)
+	}
+}
+
+func TestUpdateSpinnerTick(t *testing.T) {
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+
+	_, cmd := a.Update(spinner.TickMsg{})
+	if cmd == nil {
+		t.Fatalf("expected next tick command")
+	}
+	if a.spinner.View() == "" {
+		t.Fatalf("spinner view should not be empty")
+	}
+}
+
+func TestUpdateSearchInput(t *testing.T) {
+	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a.searchMode = true
+
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+
+	if a.searchInput != "test" {
+		t.Fatalf("expected searchInput 'test', got '%s'", a.searchInput)
+	}
+
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyBackspace})
+	if a.searchInput != "tes" {
+		t.Fatalf("expected searchInput 'tes', got '%s'", a.searchInput)
+	}
+
+	_, _ = a.updateSearchInput(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.searchMode {
+		t.Fatalf("expected searchMode to be false after enter")
+	}
+	if a.diffSearch != "tes" {
+		t.Fatalf("expected diffSearch 'tes', got '%s'", a.diffSearch)
 	}
 }
 

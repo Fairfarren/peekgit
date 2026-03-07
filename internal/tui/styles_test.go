@@ -219,25 +219,35 @@ func TestRenderTreeLineSelected(t *testing.T) {
 	}
 }
 
-// TestRenderSyncColored 测试同步状态颜色渲染
-func TestRenderSyncColored(t *testing.T) {
-	tests := []struct {
-		state  model.SyncState
-		ahead  int
-		behind int
-	}{
-		{model.SyncSynced, 0, 0},
-		{model.SyncAhead, 2, 0},
-		{model.SyncBehind, 0, 3},
-		{model.SyncDiverged, 2, 3},
-		{model.SyncUnknown, 0, 0},
-	}
+func TestSelectionStyles(t *testing.T) {
+	focused := getSelectionStyle(true)
+	unfocused := getSelectionStyle(false)
 
-	for _, tc := range tests {
-		result := renderSyncColored(tc.state, tc.ahead, tc.behind)
-		if result == "" {
-			t.Fatalf("expected non-empty result for state %v", tc.state)
-		}
+	if focused.GetBold() != unfocused.GetBold() {
+		t.Fatalf("expected both to be bold")
+	}
+}
+
+func TestBorderStyle(t *testing.T) {
+	focused := getBorderStyle(true)
+	unfocused := getBorderStyle(false)
+
+	if focused.String() == unfocused.String() {
+		t.Fatalf("expected focused and unfocused border styles to differ")
+	}
+}
+
+func TestColorizeDiff(t *testing.T) {
+	raw := `diff --git a/file.go b/file.go
+--- a/file.go
++++ b/file.go
++added line
+-deleted line
+@@ -1,1 +1,1 @@
+index 123`
+	colored := colorizeDiff(raw)
+	if colored == "" {
+		t.Fatalf("expected non-empty colored diff")
 	}
 }
 

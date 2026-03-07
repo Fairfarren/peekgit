@@ -74,6 +74,7 @@ type remoteLoadedMsg struct {
 
 type diffLoadedMsg struct {
 	content string
+	files   []FileDiff
 	err     error
 }
 
@@ -208,7 +209,7 @@ func New(cfg config.Config) *App {
 	app.refreshLimiter = make(chan struct{}, limiterSize)
 
 	sp := spinner.New()
-	sp.Spinner = spinner.MiniDot
+	sp.Spinner = spinner.Dot
 	sp.Style = loadingStyle
 	app.spinner = sp
 
@@ -216,7 +217,7 @@ func New(cfg config.Config) *App {
 }
 
 func (a *App) Init() tea.Cmd {
-	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec), configWatchTickCmd()}
+	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec), configWatchTickCmd(), a.spinner.Tick}
 	if len(a.workspaces) > 0 {
 		cmds = append(cmds, a.workspaceCheckCmd())
 	}
@@ -242,12 +243,9 @@ func configWatchTickCmd() tea.Cmd {
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case spinner.TickMsg:
-		if a.loading || a.startLoading || a.diffLoading {
-			var cmd tea.Cmd
-			a.spinner, cmd = a.spinner.Update(msg)
-			return a, cmd
-		}
-		return a, nil
+		var cmd tea.Cmd
+		a.spinner, cmd = a.spinner.Update(msg)
+		return a, cmd
 
 	case tea.WindowSizeMsg:
 		a.width = m.Width
@@ -347,13 +345,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.errText = ""
 		a.diffContent = m.content
-		a.diffTree = ParseDiff(m.content)
+		if len(m.files) > 0 {
+			a.diffTree = BuildDiffTree(m.files)
+		} else {
+			a.diffTree = ParseDiff(m.content)
+		}
 		a.diffFileIdx = 0
 		a.diffLeftOffset = 0
 		a.diffFocusLeft = true
 		// Set content for right panel (first file or empty)
 		if len(a.diffTree.Files) > 0 {
-			a.diffViewport.SetContent(colorizeDiff(a.diffTree.Files[0].Content))
+			content := a.diffTree.Files[0].Content
+			if content == "" {
+				content = "Diff 内容由于 PR 过大无法直接通过 API 获取，请在浏览器中查看。"
+			}
+			a.diffViewport.SetContent(colorizeDiff(content))
 		} else {
 			a.diffViewport.SetContent(colorizeDiff(m.content))
 		}
@@ -763,9 +769,12 @@ func (a *App) updateDiffContent() {
 
 	file := a.diffTree.GetFileByIndex(a.diffFileIdx)
 	if file != nil {
-		a.diffViewport.SetContent(colorizeDiff(file.Content))
+		content := file.Content
+		if content == "" {
+			content = "Diff 内容由于 PR 过大无法直接通过 API 获取，请在浏览器中查看。"
+		}
+		a.diffViewport.SetContent(colorizeDiff(content))
 	} else {
-		// Fallback to full diff
 		a.diffViewport.SetContent(colorizeDiff(a.diffContent))
 	}
 }
@@ -889,18 +898,14 @@ func (a *App) viewWorkspaces() string {
 }
 
 func (a *App) renderWorkspaceCard(name string, selected bool) string {
-	style := CardStyle
-	if selected {
-		style = CardSelectedStyle
-	}
-	s := style.Width(a.cardWidth)
+	s := getBorderStyle(selected).Width(a.cardWidth)
 
 	nameStr := CardHeaderStyle.Render(name)
 	countStr := labelDimStyle.Render(fmt.Sprintf("%d repos", a.workspaceCounts[name]))
 
 	var indicator string
 	if a.workspaceChecking[name] {
-		indicator = " " + loadingStyle.Render("↜")
+		indicator = " " + a.spinner.View()
 	} else if a.workspaceHasUpdate[name] {
 		indicator = " " + dirtyStyle.Render("↓")
 	}
@@ -921,7 +926,7 @@ func (a *App) renderStartPRLines(headerLines []string) []string {
 	}
 	if len(a.startPRs) == 0 {
 		if a.startLoading {
-			return append(lines, loadingStyle.Render("加载当前账号 PR 中..."))
+			return append(lines, a.spinner.View()+" 加载当前账号 PR 中...")
 		}
 		return append(lines, "当前账号下暂无 PR")
 	}
@@ -945,7 +950,7 @@ func (a *App) renderStartPRLines(headerLines []string) []string {
 		dateStr := dateStyle.Render(pr.UpdatedAt.Format("2006-01-02"))
 		line := numStr + " " + pr.Title + "  [" + repoStr + "]  " + stateStr + "  " + ciStr + "  " + dateStr
 		if i == a.startPRIdx {
-			line = selectedMarkerStyle.Render(">") + " " + line
+			line = getSelectionStyle(true).Render(line)
 		} else {
 			line = "  " + line
 		}
@@ -967,7 +972,7 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 	}
 	if len(a.startIssues) == 0 {
 		if a.startLoading {
-			return append(lines, loadingStyle.Render("加载当前账号 Issues 中..."))
+			return append(lines, a.spinner.View()+" 加载当前账号 Issues 中...")
 		}
 		return append(lines, "当前账号下暂无 Issues（我创建或指派给我）")
 	}
@@ -986,7 +991,7 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 		dateStr := dateStyle.Render(is.UpdatedAt.Format("2006-01-02"))
 		line := numStr + " " + is.Title + "  [" + repoStr + "]  " + stateStr + "  " + dateStr
 		if i == a.startIssueIdx {
-			line = selectedMarkerStyle.Render(">") + " " + line
+			line = getSelectionStyle(true).Render(line)
 		} else {
 			line = "  " + line
 		}
@@ -1159,11 +1164,7 @@ func (a *App) viewHome() string {
 }
 
 func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
-	style := CardStyle
-	if selected {
-		style = CardSelectedStyle
-	}
-	s := style.Width(a.cardWidth)
+	s := getBorderStyle(selected).Width(a.cardWidth)
 
 	nameStr := CardHeaderStyle.Render(repo.Name)
 	dirtyStr := ""
@@ -1186,7 +1187,7 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 
 	line1 := nameStr + dirtyStr
 	if a.repoRefreshing[repo.Path] {
-		line1 += " " + loadingStyle.Render("↻")
+		line1 += " " + a.spinner.View()
 	}
 	line2 := labelDimStyle.Render("branch: ") + repo.Branch + "  " + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind)
 	line3 := TagStyle.Render("PR ") + pr + "  " +
@@ -1253,10 +1254,11 @@ func (a *App) viewDetail() string {
 				authStr := authorStyle.Render(pr.Author)
 				dateStr := dateStyle.Render(pr.UpdatedAt.Format("2006-01-02"))
 				branchStr := fmt.Sprintf("[%s -> %s]", emptyDash(pr.HeadBranch), emptyDash(pr.BaseBranch))
+				line := numStr + " " + pr.Title + " " + branchStr + "  " + authStr + "  " + dateStr
 				if i == a.detailPRIdx {
-					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+pr.Title+" "+branchStr+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, getSelectionStyle(true).Render(line))
 				} else {
-					listLines = append(listLines, "  "+numStr+" "+pr.Title+" "+branchStr+"  "+authStr+"  "+dateStr)
+					listLines = append(listLines, "  "+line)
 				}
 			}
 		}
@@ -1269,10 +1271,11 @@ func (a *App) viewDetail() string {
 				is := a.issues[i]
 				numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
 				dateStr := dateStyle.Render(is.UpdatedAt.Format("2006-01-02"))
+				line := numStr + " " + is.Title + "  " + dateStr
 				if i == a.detailISIdx {
-					listLines = append(listLines, selectedMarkerStyle.Render(">")+" "+numStr+" "+is.Title+"  "+dateStr)
+					listLines = append(listLines, getSelectionStyle(true).Render(line))
 				} else {
-					listLines = append(listLines, "  "+numStr+" "+is.Title+"  "+dateStr)
+					listLines = append(listLines, "  "+line)
 				}
 			}
 		}
@@ -1345,16 +1348,9 @@ func (a *App) viewDiff() string {
 	// Build left panel (file tree)
 	leftTitle := dirStyle.Render(" Files ")
 	leftContent := a.renderFileTree(leftWidth-4, contentHeight-1) // -4 for borders(2) + padding(2), -1 for title
-	leftBorder := panelBorderBlur
-	if a.diffFocusLeft {
-		leftBorder = panelBorderFocus
-	}
-	leftPanel := lipgloss.NewStyle().
+	leftPanel := getBorderStyle(a.diffFocusLeft).
 		Width(leftWidth).
 		Height(contentHeight).
-		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(leftBorder).
 		Render(leftTitle + "\n" + leftContent)
 
 	// Build right panel (diff content)
@@ -1367,16 +1363,9 @@ func (a *App) viewDiff() string {
 		}
 		rightTitle = diffMetaStyle.Render(" " + displayName + " ")
 	}
-	rightBorder := panelBorderBlur
-	if !a.diffFocusLeft {
-		rightBorder = panelBorderFocus
-	}
-	rightPanel := lipgloss.NewStyle().
+	rightPanel := getBorderStyle(!a.diffFocusLeft).
 		Width(rightWidth).
 		Height(contentHeight).
-		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(rightBorder).
 		Render(rightTitle + "\n" + a.diffViewport.View())
 
 	// Combine panels with gap
@@ -1595,7 +1584,7 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 
 	// Apply selection style
 	if isSelected {
-		line = TreeSelectedStyle.Render(line)
+		line = getSelectionStyle(a.diffFocusLeft).Render(line)
 	}
 
 	return line
@@ -1753,35 +1742,57 @@ func (a *App) updateRepoOpenCounts(repoPath string, prOpen *int, issueOpen *int)
 
 func (a *App) loadPRDiffCmd(repo model.RepoStatus, number int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		owner, rname, err := a.git.ParseOwnerRepoFromRemote(ctx, repo.Path)
 		if err != nil {
 			return diffLoadedMsg{err: err}
 		}
-		diff, err := a.gh.PullRequestDiff(ctx, owner, rname, number)
-		if err != nil {
-			return diffLoadedMsg{err: err}
-		}
-		return diffLoadedMsg{content: diff}
+		return a.fetchDiffOrFiles(ctx, owner, rname, number)
 	}
 }
 
 func (a *App) loadAccountPRDiffCmd(repoFull string, number int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		parts := strings.Split(repoFull, "/")
 		if len(parts) != 2 {
 			return diffLoadedMsg{err: fmt.Errorf("invalid repo name: %s", repoFull)}
 		}
-		owner, rname := parts[0], parts[1]
-		diff, err := a.gh.PullRequestDiff(ctx, owner, rname, number)
+		return a.fetchDiffOrFiles(ctx, parts[0], parts[1], number)
+	}
+}
+
+func (a *App) fetchDiffOrFiles(ctx context.Context, owner, repo string, number int) tea.Msg {
+	diff, err := a.gh.PullRequestDiff(ctx, owner, repo, number)
+	if err != nil && errors.Is(err, ghprovider.ErrDiffTooLarge) {
+		ghFiles, err := a.gh.ListPRFiles(ctx, owner, repo, number)
 		if err != nil {
 			return diffLoadedMsg{err: err}
 		}
-		return diffLoadedMsg{content: diff}
+		files := make([]FileDiff, 0, len(ghFiles))
+		for _, f := range ghFiles {
+			fd := FileDiff{
+				Path:     f.GetFilename(),
+				Content:  f.GetPatch(),
+				AddLines: f.GetAdditions(),
+				DelLines: f.GetDeletions(),
+			}
+			switch f.GetStatus() {
+			case "added":
+				fd.IsNew = true
+			case "removed":
+				fd.IsDelete = true
+			}
+			files = append(files, fd)
+		}
+		return diffLoadedMsg{files: files}
 	}
+	if err != nil {
+		return diffLoadedMsg{err: err}
+	}
+	return diffLoadedMsg{content: diff}
 }
 
 func (a *App) openCurrentURLCmd() tea.Cmd {
@@ -1995,7 +2006,18 @@ func (a *App) setSearch(term string) {
 	if strings.TrimSpace(term) == "" {
 		return
 	}
-	lines := strings.Split(a.diffContent, "\n")
+
+	searchContent := a.diffContent
+	if searchContent == "" && a.diffTree != nil {
+		var sb strings.Builder
+		for _, f := range a.diffTree.Files {
+			sb.WriteString(f.Content)
+			sb.WriteString("\n")
+		}
+		searchContent = sb.String()
+	}
+
+	lines := strings.Split(searchContent, "\n")
 	for i, line := range lines {
 		if strings.Contains(strings.ToLower(line), strings.ToLower(term)) {
 			a.matches = append(a.matches, i)

@@ -8,15 +8,15 @@ import (
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"})
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
 	wsPathStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#888888"})
 	tokenOKStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
 	tokenBadStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
 	errStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
-	loadingStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
+	loadingStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
 
 	syncSyncedStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
-	syncAheadStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
+	syncAheadStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
 	syncBehindStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
 	syncDivergedStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8A3DB8", Dark: "#CE93D8"})
 	syncUnknownStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#666666"})
@@ -24,13 +24,12 @@ var (
 	dirtyStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#D4880F", Dark: "#FFAB40"})
 	labelDimStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#888888"})
 
-	tabActiveStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Underline(true)
+	tabActiveStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"}).Underline(true)
 	tabInactiveStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#666666"})
 
-	selectedMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"})
-	numberStyle         = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
-	authorStyle         = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#888888"})
-	dateStyle           = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#666666"})
+	numberStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
+	authorStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#888888"})
+	dateStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#666666"})
 
 	diffAddStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"})
 	diffDelStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"})
@@ -39,24 +38,11 @@ var (
 	diffHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"})
 	searchInfoStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B8860B", Dark: "#FFD700"})
 
-	// Split diff view styles
 	dirStyle         = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"})
-	panelBorderFocus = lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}
-	panelBorderBlur  = lipgloss.AdaptiveColor{Light: "#C0C0C0", Dark: "#444444"}
+	panelBorderFocus = lipgloss.AdaptiveColor{Light: "#1B8C3A", Dark: "#5FD97F"}
+	panelBorderBlur  = lipgloss.AdaptiveColor{Light: "#D0D0D0", Dark: "#444444"}
 
-	// File tree styles
 	cursorStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).Bold(true)
-
-	// Card styles
-	CardStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#D0D0D0", Dark: "#444444"}).
-			Padding(0, 1)
-
-	CardSelectedStyle = lipgloss.NewStyle().
-				Border(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).
-				Padding(0, 1)
 
 	CardHeaderStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -68,13 +54,11 @@ var (
 	TagDirtyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#D4880F", Dark: "#FFAB40"})
 
-	// Status block styles
 	StatusBlockSyncedStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#5FD97F")).Foreground(lipgloss.Color("#000000"))
 	StatusBlockAheadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#FFD700")).Foreground(lipgloss.Color("#000000"))
 	StatusBlockBehindStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#FF6B6B")).Foreground(lipgloss.Color("#FFFFFF"))
 	StatusBlockDivergedStyle = lipgloss.NewStyle().Background(lipgloss.Color("#CE93D8")).Foreground(lipgloss.Color("#000000"))
 
-	// Help bar styles
 	HelpBarStyle = lipgloss.NewStyle().
 			Background(lipgloss.AdaptiveColor{Light: "#E8E8E8", Dark: "#333333"}).
 			Foreground(lipgloss.AdaptiveColor{Light: "#555555", Dark: "#AAAAAA"}).
@@ -87,20 +71,14 @@ var (
 	HelpDescStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#999999"})
 
-	// Error banner styles
 	ErrorBannerStyle = lipgloss.NewStyle().
 				Background(lipgloss.AdaptiveColor{Light: "#FFEBEE", Dark: "#3D1F1F"}).
 				Foreground(lipgloss.AdaptiveColor{Light: "#B83232", Dark: "#FF6B6B"}).
 				Bold(true).
 				Padding(0, 1)
 
-	// File tree styles
-	TreeDirStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"}).Bold(true)
-	TreeFileStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#CCCCCC"})
-	TreeSelectedStyle = lipgloss.NewStyle().
-				Background(lipgloss.AdaptiveColor{Light: "#D0E8FF", Dark: "#1A3A5C"}).
-				Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).
-				Bold(true)
+	TreeDirStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A8FA8", Dark: "#4FC3F7"}).Bold(true)
+	TreeFileStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#CCCCCC"})
 
 	FileStatusNewStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FD97F"))
 	FileStatusDelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
@@ -148,4 +126,29 @@ func colorizeDiff(raw string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func getBorderStyle(focused bool) lipgloss.Style {
+	if focused {
+		return lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(panelBorderFocus).
+			Padding(0, 1)
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(panelBorderBlur).
+		Padding(0, 1)
+}
+
+func getSelectionStyle(focused bool) lipgloss.Style {
+	if focused {
+		return lipgloss.NewStyle().
+			Background(lipgloss.AdaptiveColor{Light: "#D0E8FF", Dark: "#1A3A5C"}).
+			Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).
+			Bold(true)
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.AdaptiveColor{Light: "#1A5CCC", Dark: "#6EA8FF"}).
+		Bold(true)
 }

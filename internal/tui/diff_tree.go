@@ -42,6 +42,10 @@ func ParseDiff(raw string) *DiffTree {
 	}
 
 	files := parseDiffFiles(raw)
+	return BuildDiffTree(files)
+}
+
+func BuildDiffTree(files []FileDiff) *DiffTree {
 	tree := buildTree(files)
 	fileList := flattenTree(tree)
 
@@ -145,7 +149,7 @@ func parseDiffHeader(line string) *FileDiff {
 	}
 
 	aPath := rest[aIdx+2 : bIdx]
-	bPath := rest[bIdx+2:]
+	bPath := rest[bIdx+3:]
 
 	// Use b/path as the main path (shows the destination)
 	path := bPath

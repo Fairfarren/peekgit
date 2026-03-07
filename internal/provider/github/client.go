@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -17,6 +18,7 @@ import (
 )
 
 var ErrUnauthenticated = errors.New("unauthenticated")
+var ErrDiffTooLarge = errors.New("diff-too-large")
 
 var runGhAuthToken = func(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "auth", "token")
@@ -146,12 +148,35 @@ func (c *Client) PullRequestDiff(ctx context.Context, owner string, repo string,
 	if v, ok := c.diffCache.Get(cacheKey, time.Now()); ok {
 		return v, nil
 	}
-	raw, _, err := c.client.PullRequests.GetRaw(ctx, owner, repo, number, gh.RawOptions{Type: gh.Diff})
+	raw, resp, err := c.client.PullRequests.GetRaw(ctx, owner, repo, number, gh.RawOptions{Type: gh.Diff})
 	if err != nil {
+		if resp != nil && resp.StatusCode == 406 {
+			return "", ErrDiffTooLarge
+		}
 		return "", err
 	}
 	c.diffCache.Set(cacheKey, raw, time.Now())
 	return raw, nil
+}
+
+func (c *Client) ListPRFiles(ctx context.Context, owner string, repo string, number int) ([]*gh.CommitFile, error) {
+	if !c.Authenticated() {
+		return nil, ErrUnauthenticated
+	}
+	opt := &gh.ListOptions{PerPage: 100}
+	var allFiles []*gh.CommitFile
+	for {
+		files, resp, err := c.client.PullRequests.ListFiles(ctx, owner, repo, number, opt)
+		if err != nil {
+			return nil, fmt.Errorf("list PR files: %w", err)
+		}
+		allFiles = append(allFiles, files...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+	return allFiles, nil
 }
 
 func (c *Client) ListMyPullRequests(ctx context.Context) ([]model.AccountPullRequestItem, error) {
