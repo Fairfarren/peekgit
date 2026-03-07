@@ -148,10 +148,10 @@ func (c *Client) PullRequestDiff(ctx context.Context, owner string, repo string,
 	}
 	raw, resp, err := c.client.PullRequests.GetRaw(ctx, owner, repo, number, gh.RawOptions{Type: gh.Diff})
 	if err != nil {
+		if resp != nil && resp.StatusCode == 406 {
+			return "", errors.New("diff-too-large")
+		}
 		return "", err
-	}
-	if resp.StatusCode == 406 {
-		return "", errors.New("diff-too-large")
 	}
 	c.diffCache.Set(cacheKey, raw, time.Now())
 	return raw, nil

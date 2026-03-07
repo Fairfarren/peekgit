@@ -246,7 +246,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.spinner, cmd = a.spinner.Update(msg)
 		return a, cmd
-		return a, nil
 
 	case tea.WindowSizeMsg:
 		a.width = m.Width
