@@ -2,9 +2,16 @@
 /repo-monitor
 coverage.out
 *.coverprofile
+*.test
+*.exe
+vendor/
+*.log
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 
 .opencode
-
 .specify
-
 specs
