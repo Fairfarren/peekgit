@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Fairfarren/peekgit/internal/config"
@@ -77,5 +79,34 @@ func TestEmptyDash(t *testing.T) {
 	}
 	if emptyDash("origin/main") != "origin/main" {
 		t.Fatalf("expected original value")
+	}
+}
+
+func TestWorkspaceModeStartsOnHomeAndInitRefreshes(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	cfg := config.Config{
+		Global:         config.GlobalConfig{Workspaces: map[string][]string{root: []string{root}}},
+		IntervalSec:    300,
+		Concurrency:    1,
+		NoGitHub:       true,
+		WorkspaceMode:  true,
+		WorkspaceDepth: 1,
+		WorkspaceRoot:  root,
+	}
+	a := New(cfg)
+	if a.screen != screenHome {
+		t.Fatalf("expected home screen in workspace mode")
+	}
+	cmd := a.Init()
+	if cmd == nil {
+		t.Fatalf("expected init command")
+	}
+	if !a.loading {
+		t.Fatalf("expected loading to be true after startup refresh command setup")
 	}
 }

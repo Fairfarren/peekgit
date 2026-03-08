@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -13,6 +14,52 @@ type RepoDir struct {
 
 func ScanRepos(configuredPaths []string) ([]RepoDir, error) {
 	return scanConfiguredPaths(configuredPaths)
+}
+
+func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
+	if depth <= 0 {
+		depth = 0
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+
+	repos := make([]RepoDir, 0)
+	seen := make(map[string]struct{})
+
+	var walk func(path string, d int)
+	walk = func(path string, d int) {
+		ok, err := IsGitRepo(path)
+		if err == nil && ok {
+			if _, exists := seen[path]; !exists {
+				seen[path] = struct{}{}
+				repos = append(repos, RepoDir{Name: filepath.Base(path), Path: path})
+			}
+		}
+
+		if d >= depth {
+			return
+		}
+
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			if entry.Name() == ".git" {
+				continue
+			}
+			walk(filepath.Join(path, entry.Name()), d+1)
+		}
+	}
+
+	walk(absRoot, 0)
+	sort.Slice(repos, func(i, j int) bool { return repos[i].Path < repos[j].Path })
+	return repos, nil
 }
 
 func scanConfiguredPaths(paths []string) ([]RepoDir, error) {

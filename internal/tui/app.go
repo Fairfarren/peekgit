@@ -177,12 +177,25 @@ type App struct {
 func New(cfg config.Config) *App {
 	wsKeys := sortedWorkspaceKeys(cfg.Global.Workspaces)
 	wsCounts := calcWorkspaceCounts(cfg.Global.Workspaces, wsKeys)
+	if cfg.WorkspaceMode && len(wsKeys) > 0 {
+		repos, err := workspace.ScanReposWithDepth(cfg.WorkspaceRoot, cfg.WorkspaceDepth)
+		if err != nil {
+			wsCounts = map[string]int{wsKeys[0]: 0}
+		} else {
+			wsCounts = map[string]int{wsKeys[0]: len(repos)}
+		}
+	}
+
+	initialScreen := screenWorkspaces
+	if cfg.WorkspaceMode {
+		initialScreen = screenHome
+	}
 
 	app := &App{
 		cfg:                cfg,
 		git:                gitcli.New(),
 		gh:                 ghprovider.New(context.Background(), cfg.NoGitHub),
-		screen:             screenWorkspaces,
+		screen:             initialScreen,
 		detailTab:          tabPR,
 		columns:            1,
 		cardWidth:          cardMinWidth,
@@ -217,9 +230,15 @@ func New(cfg config.Config) *App {
 }
 
 func (a *App) Init() tea.Cmd {
-	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec), configWatchTickCmd(), a.spinner.Tick}
+	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec), a.spinner.Tick}
+	if !a.cfg.WorkspaceMode {
+		cmds = append(cmds, configWatchTickCmd())
+	}
 	if len(a.workspaces) > 0 {
 		cmds = append(cmds, a.workspaceCheckCmd())
+	}
+	if a.cfg.WorkspaceMode && len(a.workspaces) > 0 {
+		cmds = append(cmds, a.refreshAllCmd())
 	}
 	if a.gh.Authenticated() {
 		a.startLoading = true
@@ -401,6 +420,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case configWatchTickMsg:
+		if a.cfg.WorkspaceMode {
+			return a, nil
+		}
 		return a, tea.Batch(configWatchTickCmd(), a.reloadGlobalConfigCmd())
 
 	case configReloadedMsg:
@@ -595,6 +617,9 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(visible) == 0 {
 		switch msg.String() {
 		case "q", "esc":
+			if a.cfg.WorkspaceMode {
+				return a, tea.Quit
+			}
 			a.screen = screenWorkspaces
 			a.filterMode = false
 			a.filterText = ""
@@ -610,6 +635,9 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "esc":
+		if a.cfg.WorkspaceMode {
+			return a, tea.Quit
+		}
 		a.screen = screenWorkspaces
 		a.filterMode = false
 		a.filterText = ""
@@ -935,26 +963,25 @@ func (a *App) renderStartPRLines(headerLines []string) []string {
 	if listHeight < 0 {
 		listHeight = 0
 	}
-	start, end := calculateScrollWindow(len(a.startPRs), a.startPRIdx, listHeight)
+	idWidth := maxPRNumberWidthAccount(a.startPRs)
 	listLines := append([]string{}, lines...)
+	listLines = append(listLines, renderTableHeaderLine(prTableHeader(a.width, idWidth)))
+	itemHeight := listHeight - 1
+	if itemHeight < 0 {
+		itemHeight = 0
+	}
+	start, end := calculateScrollWindow(len(a.startPRs), a.startPRIdx, itemHeight)
 	for i := start; i < end; i++ {
 		pr := a.startPRs[i]
-		numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
-		repoStr := wsPathStyle.Render(pr.RepoFull)
-		stateStr := labelDimStyle.Render(pr.StateLabel)
-		ciStatus := strings.TrimSpace(pr.CIStatus)
-		if ciStatus == "" {
-			ciStatus = "UNKNOWN"
-		}
-		ciStr := labelDimStyle.Render("CI:" + ciStatus)
-		dateStr := dateStyle.Render(pr.UpdatedAt.Format("2006-01-02"))
-		line := numStr + " " + pr.Title + "  [" + repoStr + "]  " + stateStr + "  " + ciStr + "  " + dateStr
-		if i == a.startPRIdx {
-			line = getSelectionStyle(true).Render(line)
-		} else {
-			line = "  " + line
-		}
-		listLines = append(listLines, line)
+		line := prTableRow(
+			a.width,
+			idWidth,
+			pr.Number,
+			"["+pr.RepoFull+"] "+pr.Title,
+			prStartLabelSummary(pr.StateLabel, pr.CIStatus),
+			pr.UpdatedAt,
+		)
+		listLines = append(listLines, renderSelectableLine(line, i == a.startPRIdx))
 	}
 	return listLines
 }
@@ -981,21 +1008,22 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 	if listHeight < 0 {
 		listHeight = 0
 	}
-	start, end := calculateScrollWindow(len(a.startIssues), a.startIssueIdx, listHeight)
+	idWidth := maxIssueNumberWidthAccount(a.startIssues)
 	listLines := append([]string{}, lines...)
+	listLines = append(listLines, renderTableHeaderLine(issueTableHeader(a.width, idWidth)))
+	itemHeight := listHeight - 1
+	if itemHeight < 0 {
+		itemHeight = 0
+	}
+	start, end := calculateScrollWindow(len(a.startIssues), a.startIssueIdx, itemHeight)
 	for i := start; i < end; i++ {
 		is := a.startIssues[i]
-		numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
-		repoStr := wsPathStyle.Render(is.RepoFull)
-		stateStr := labelDimStyle.Render(is.StateLabel)
-		dateStr := dateStyle.Render(is.UpdatedAt.Format("2006-01-02"))
-		line := numStr + " " + is.Title + "  [" + repoStr + "]  " + stateStr + "  " + dateStr
-		if i == a.startIssueIdx {
-			line = getSelectionStyle(true).Render(line)
-		} else {
-			line = "  " + line
+		labelText := "-"
+		if len(is.Labels) > 0 {
+			labelText = strings.Join(is.Labels, ", ")
 		}
-		listLines = append(listLines, line)
+		line := issueTableRow(a.width, idWidth, is.Number, "["+is.RepoFull+"] "+is.Title, []string{labelText}, is.UpdatedAt)
+		listLines = append(listLines, renderSelectableLine(line, i == a.startIssueIdx))
 	}
 	return listLines
 }
@@ -1198,10 +1226,14 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 
 func (a *App) viewDetail() string {
 	repo := a.currentRepo()
-	header := titleStyle.Render(repo.Name) + " " +
+	header := titleStyle.Render(repo.Name)
+	if a.loading {
+		header += "  " + a.spinner.View() + " 刷新中..."
+	}
+	header += " " +
 		labelDimStyle.Render("(branch: ") + repo.Branch +
 		labelDimStyle.Render("  status: ") + renderSyncColored(repo.Sync, repo.Ahead, repo.Behind) +
-		labelDimStyle.Render(")") + "  " + HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
+		labelDimStyle.Render(")")
 
 	tabLabels := []string{"PRs", "Issues"}
 	tabStrs := make([]string, len(tabLabels))
@@ -1212,11 +1244,7 @@ func (a *App) viewDetail() string {
 			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
 		}
 	}
-	refreshText := HelpKeyStyle.Render("[r]") + HelpDescStyle.Render(" 刷新")
-	if a.loading {
-		refreshText = a.spinner.View() + " 刷新中..."
-	}
-	headerLines := []string{header, strings.Join(tabStrs, "  ") + "   " + refreshText}
+	headerLines := []string{header, strings.Join(tabStrs, "  ")}
 	if a.errText != "" {
 		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ "+a.errText))
 	}
@@ -1225,14 +1253,19 @@ func (a *App) viewDetail() string {
 	}
 
 	var subHelp string
+	refreshHint := HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ")
 	switch a.detailTab {
 	case tabPR:
 		subHelp = HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
 			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" diff  ") +
-			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开")
+			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开  ") +
+			refreshHint +
+			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 返回")
 	case tabIssue:
 		subHelp = HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
-			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开")
+			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开  ") +
+			refreshHint +
+			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 返回")
 	}
 
 	// Calculate available height for the list
@@ -1247,36 +1280,41 @@ func (a *App) viewDetail() string {
 		if len(a.prList) == 0 {
 			listLines = append(listLines, "暂无 PR")
 		} else {
-			start, end := calculateScrollWindow(len(a.prList), a.detailPRIdx, listHeight)
+			idWidth := maxPRNumberWidthDetail(a.prList)
+			listLines = append(listLines, renderTableHeaderLine(prTableHeader(a.width, idWidth)))
+			itemHeight := listHeight - 1
+			if itemHeight < 0 {
+				itemHeight = 0
+			}
+			start, end := calculateScrollWindow(len(a.prList), a.detailPRIdx, itemHeight)
 			for i := start; i < end; i++ {
 				pr := a.prList[i]
-				numStr := numberStyle.Render(fmt.Sprintf("#%d", pr.Number))
-				authStr := authorStyle.Render(pr.Author)
-				dateStr := dateStyle.Render(pr.UpdatedAt.Format("2006-01-02"))
-				branchStr := fmt.Sprintf("[%s -> %s]", emptyDash(pr.HeadBranch), emptyDash(pr.BaseBranch))
-				line := numStr + " " + pr.Title + " " + branchStr + "  " + authStr + "  " + dateStr
-				if i == a.detailPRIdx {
-					listLines = append(listLines, getSelectionStyle(true).Render(line))
-				} else {
-					listLines = append(listLines, "  "+line)
-				}
+				line := prTableRow(
+					a.width,
+					idWidth,
+					pr.Number,
+					pr.Title+" ["+emptyDash(pr.HeadBranch)+" -> "+emptyDash(pr.BaseBranch)+"]",
+					emptyDash(pr.Author),
+					pr.UpdatedAt,
+				)
+				listLines = append(listLines, renderSelectableLine(line, i == a.detailPRIdx))
 			}
 		}
 	} else {
 		if len(a.issues) == 0 {
 			listLines = append(listLines, "暂无 Issues")
 		} else {
-			start, end := calculateScrollWindow(len(a.issues), a.detailISIdx, listHeight)
+			idWidth := maxIssueNumberWidthDetail(a.issues)
+			listLines = append(listLines, renderTableHeaderLine(issueTableHeader(a.width, idWidth)))
+			itemHeight := listHeight - 1
+			if itemHeight < 0 {
+				itemHeight = 0
+			}
+			start, end := calculateScrollWindow(len(a.issues), a.detailISIdx, itemHeight)
 			for i := start; i < end; i++ {
 				is := a.issues[i]
-				numStr := numberStyle.Render(fmt.Sprintf("#%d", is.Number))
-				dateStr := dateStyle.Render(is.UpdatedAt.Format("2006-01-02"))
-				line := numStr + " " + is.Title + "  " + dateStr
-				if i == a.detailISIdx {
-					listLines = append(listLines, getSelectionStyle(true).Render(line))
-				} else {
-					listLines = append(listLines, "  "+line)
-				}
+				line := issueTableRow(a.width, idWidth, is.Number, is.Title, is.Labels, is.UpdatedAt)
+				listLines = append(listLines, renderSelectableLine(line, i == a.detailISIdx))
 			}
 		}
 	}
@@ -1391,6 +1429,242 @@ func (a *App) viewDiff() string {
 	lines := []string{"", panels, help}
 
 	return strings.Join(lines, "\n")
+}
+
+func maxIssueNumberWidthAccount(items []model.AccountIssueItem) int {
+	maxW := lipgloss.Width("ID")
+	for _, it := range items {
+		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
+		if w > maxW {
+			maxW = w
+		}
+	}
+	if maxW < 4 {
+		maxW = 4
+	}
+	return maxW
+}
+
+func maxIssueNumberWidthDetail(items []model.IssueItem) int {
+	maxW := lipgloss.Width("ID")
+	for _, it := range items {
+		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
+		if w > maxW {
+			maxW = w
+		}
+	}
+	if maxW < 4 {
+		maxW = 4
+	}
+	return maxW
+}
+
+func maxPRNumberWidthAccount(items []model.AccountPullRequestItem) int {
+	maxW := lipgloss.Width("ID")
+	for _, it := range items {
+		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
+		if w > maxW {
+			maxW = w
+		}
+	}
+	if maxW < 4 {
+		maxW = 4
+	}
+	return maxW
+}
+
+func maxPRNumberWidthDetail(items []model.PullRequestItem) int {
+	maxW := lipgloss.Width("ID")
+	for _, it := range items {
+		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
+		if w > maxW {
+			maxW = w
+		}
+	}
+	if maxW < 4 {
+		maxW = 4
+	}
+	return maxW
+}
+
+func issueTableHeader(totalWidth int, idWidth int) string {
+	titleW, labelsW, updatedW := issueTableColumnWidths(totalWidth, idWidth)
+	return formatIssueTableRow(idWidth, titleW, labelsW, updatedW, "ID", "TITLE", "LABELS", "UPDATED")
+}
+
+func prTableHeader(totalWidth int, idWidth int) string {
+	titleW, labelsW, updatedW := issueTableColumnWidths(totalWidth, idWidth)
+	return formatIssueTableRow(idWidth, titleW, labelsW, updatedW, "ID", "TITLE", "LABELS", "UPDATED")
+}
+
+func issueTableRow(totalWidth int, idWidth int, number int, title string, labels []string, updatedAt time.Time) string {
+	titleW, labelsW, updatedW := issueTableColumnWidths(totalWidth, idWidth)
+	labelText := "-"
+	if len(labels) > 0 {
+		labelText = strings.Join(labels, ", ")
+	}
+	return formatIssueTableRow(
+		idWidth,
+		titleW,
+		labelsW,
+		updatedW,
+		fmt.Sprintf("#%d", number),
+		title,
+		labelText,
+		formatRelativeTime(updatedAt, time.Now()),
+	)
+}
+
+func prTableRow(totalWidth int, idWidth int, number int, title string, labels string, updatedAt time.Time) string {
+	titleW, labelsW, updatedW := issueTableColumnWidths(totalWidth, idWidth)
+	return formatIssueTableRow(
+		idWidth,
+		titleW,
+		labelsW,
+		updatedW,
+		fmt.Sprintf("#%d", number),
+		title,
+		labels,
+		formatRelativeTime(updatedAt, time.Now()),
+	)
+}
+
+func prStartLabelSummary(stateLabel string, ciStatus string) string {
+	state := strings.TrimSpace(stateLabel)
+	if state == "" {
+		state = "OPEN"
+	}
+	ci := strings.TrimSpace(ciStatus)
+	if ci == "" {
+		ci = "UNKNOWN"
+	}
+	return state + ", CI:" + ci
+}
+
+func renderSelectableLine(line string, selected bool) string {
+	base := "  " + line
+	if selected {
+		return getSelectionStyle(true).Render(base)
+	}
+	return base
+}
+
+func renderTableHeaderLine(line string) string {
+	return labelDimStyle.Render("  " + line)
+}
+
+func issueTableColumnWidths(totalWidth int, idWidth int) (titleWidth int, labelsWidth int, updatedWidth int) {
+	if totalWidth < 40 {
+		totalWidth = 40
+	}
+	labelsWidth = 12
+	updatedWidth = 20
+	gapTotal := 6 // 3 gaps * 2 spaces
+	titleWidth = totalWidth - idWidth - labelsWidth - updatedWidth - gapTotal
+
+	minTitle := 20
+	minLabels := 8
+	minUpdated := 16
+
+	if titleWidth < minTitle {
+		deficit := minTitle - titleWidth
+		shift := min(deficit, labelsWidth-minLabels)
+		labelsWidth -= shift
+		deficit -= shift
+		shift = min(deficit, updatedWidth-minUpdated)
+		updatedWidth -= shift
+		titleWidth = totalWidth - idWidth - labelsWidth - updatedWidth - gapTotal
+	}
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+
+	return titleWidth, labelsWidth, updatedWidth
+}
+
+func formatIssueTableRow(idWidth int, titleWidth int, labelsWidth int, updatedWidth int, id string, title string, labels string, updated string) string {
+	return formatIssueCell(id, idWidth) + "  " +
+		formatIssueCell(title, titleWidth) + "  " +
+		formatIssueCell(labels, labelsWidth) + "  " +
+		formatIssueCell(updated, updatedWidth)
+}
+
+func formatIssueCell(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	truncated := truncateWithEllipsis(strings.TrimSpace(s), width)
+	pad := width - lipgloss.Width(truncated)
+	if pad <= 0 {
+		return truncated
+	}
+	return truncated + strings.Repeat(" ", pad)
+}
+
+func truncateWithEllipsis(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	if maxWidth == 1 {
+		return "…"
+	}
+	runes := []rune(s)
+	out := ""
+	for _, r := range runes {
+		next := out + string(r)
+		if lipgloss.Width(next) > maxWidth-1 {
+			break
+		}
+		out = next
+	}
+	return out + "…"
+}
+
+func formatRelativeTime(t time.Time, now time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	d := now.Sub(t)
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(d / time.Minute)
+		if m <= 1 {
+			return "about 1 minute ago"
+		}
+		return fmt.Sprintf("about %d minutes ago", m)
+	case d < 24*time.Hour:
+		h := int(d / time.Hour)
+		if h <= 1 {
+			return "about 1 hour ago"
+		}
+		return fmt.Sprintf("about %d hours ago", h)
+	case d < 30*24*time.Hour:
+		day := int(d / (24 * time.Hour))
+		if day <= 1 {
+			return "about 1 day ago"
+		}
+		return fmt.Sprintf("about %d days ago", day)
+	case d < 365*24*time.Hour:
+		month := int(d / (30 * 24 * time.Hour))
+		if month <= 1 {
+			return "about 1 month ago"
+		}
+		return fmt.Sprintf("about %d months ago", month)
+	default:
+		year := int(d / (365 * 24 * time.Hour))
+		if year <= 1 {
+			return "about 1 year ago"
+		}
+		return fmt.Sprintf("about %d years ago", year)
+	}
 }
 
 // viewDiffSimple renders a simple single-panel diff view for small screens
@@ -1602,11 +1876,19 @@ func composeWithFooter(height int, bodyLines []string, footer string) string {
 	}
 
 	maxBodyLines := height - 1
-	if len(bodyLines) > maxBodyLines {
-		bodyLines = bodyLines[:maxBodyLines]
+
+	flattened := make([]string, 0, len(bodyLines))
+	for _, line := range bodyLines {
+		flattened = append(flattened, strings.Split(line, "\n")...)
+	}
+	if len(flattened) > maxBodyLines {
+		flattened = flattened[:maxBodyLines]
+	}
+	for len(flattened) < maxBodyLines {
+		flattened = append(flattened, "")
 	}
 
-	lines := append([]string{}, bodyLines...)
+	lines := append([]string{}, flattened...)
 	lines = append(lines, styledFooter)
 	return strings.Join(lines, "\n")
 }
@@ -1634,12 +1916,19 @@ func (a *App) refreshAllCmd() tea.Cmd {
 	paths := append([]string(nil), a.cfg.Global.Workspaces[wsName]...)
 
 	return func() tea.Msg {
-		repos, err := workspace.ScanRepos(paths)
+		repos, err := a.scanWorkspaceRepos(paths)
 		if err != nil {
 			return refreshDoneMsg{seq: seq, err: err}
 		}
 		return refreshDoneMsg{seq: seq, repos: repos}
 	}
+}
+
+func (a *App) scanWorkspaceRepos(paths []string) ([]workspace.RepoDir, error) {
+	if a.cfg.WorkspaceMode {
+		return workspace.ScanReposWithDepth(a.cfg.WorkspaceRoot, a.cfg.WorkspaceDepth)
+	}
+	return workspace.ScanRepos(paths)
 }
 
 func (a *App) refreshRepoCmd(seq int, name string, path string) tea.Cmd {
@@ -1873,7 +2162,7 @@ func (a *App) workspaceCheckOneCmd(wsName string, paths []string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		repos, err := workspace.ScanRepos(paths)
+		repos, err := a.scanWorkspaceRepos(paths)
 		if err != nil || len(repos) == 0 {
 			return workspaceCheckDoneMsg{workspace: wsName, hasUpdate: false}
 		}

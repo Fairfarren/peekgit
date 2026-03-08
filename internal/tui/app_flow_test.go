@@ -84,6 +84,17 @@ func TestUpdateHomeEmptyListBackToWorkspaces(t *testing.T) {
 	}
 }
 
+func TestUpdateHomeWorkspaceModeQQuits(t *testing.T) {
+	a := newTestApp()
+	a.cfg.WorkspaceMode = true
+	a.screen = screenHome
+
+	_, cmd := a.updateHome(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatalf("expected quit command")
+	}
+}
+
 func TestUpdateFilterInput(t *testing.T) {
 	a := newTestApp()
 	a.filterMode = true
@@ -499,7 +510,31 @@ func TestViewWorkspacesIssueShowsRefreshingIndicatorWhenLoadingWithData(t *testi
 	}
 }
 
-func TestRenderStartPRLinesShowsCIStatus(t *testing.T) {
+func TestRenderStartIssueLinesUsesTableLayout(t *testing.T) {
+	a := newTestApp()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+	a.startIssues = []model.AccountIssueItem{{
+		Number:    78,
+		Title:     "T022: Fix static loading spinner (Completed)",
+		Labels:    []string{"bug"},
+		UpdatedAt: time.Now().Add(-14*time.Hour - 2*time.Minute),
+	}}
+
+	lines := a.renderStartIssueLines([]string{"header"})
+	rendered := strings.Join(lines, "\n")
+	if !strings.Contains(rendered, "ID") || !strings.Contains(rendered, "TITLE") || !strings.Contains(rendered, "LABELS") || !strings.Contains(rendered, "UPDATED") {
+		t.Fatalf("expected issue table header, got=%s", rendered)
+	}
+	if !strings.Contains(rendered, "#78") || !strings.Contains(rendered, "bug") {
+		t.Fatalf("expected issue row content, got=%s", rendered)
+	}
+	if !strings.Contains(rendered, "about 14 hours ago") {
+		t.Fatalf("expected relative time in issue row, got=%s", rendered)
+	}
+}
+
+func TestRenderStartPRLinesUsesTableLayout(t *testing.T) {
 	a := newTestApp()
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	a.gh = ghprovider.New(context.Background(), false)
@@ -513,8 +548,29 @@ func TestRenderStartPRLinesShowsCIStatus(t *testing.T) {
 	}}
 
 	lines := a.renderStartPRLines([]string{"header"})
-	if !strings.Contains(strings.Join(lines, "\n"), "CI:SUCCESS") {
-		t.Fatalf("expected CI status in PR render lines")
+	rendered := strings.Join(lines, "\n")
+	if !strings.Contains(rendered, "ID") || !strings.Contains(rendered, "TITLE") || !strings.Contains(rendered, "LABELS") || !strings.Contains(rendered, "UPDATED") {
+		t.Fatalf("expected PR table header, got=%s", rendered)
+	}
+	if !strings.Contains(rendered, "#11") || !strings.Contains(rendered, "CI:") {
+		t.Fatalf("expected PR row content, got=%s", rendered)
+	}
+}
+
+func TestRenderStartPRLinesSelectedRowDoesNotShift(t *testing.T) {
+	a := newTestApp()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	a.gh = ghprovider.New(context.Background(), false)
+	a.startPRs = []model.AccountPullRequestItem{
+		{Number: 11, Title: "first", RepoFull: "o/r", UpdatedAt: time.Now().Add(-2 * time.Hour), StateLabel: "OPEN", CIStatus: "SUCCESS"},
+		{Number: 12, Title: "second", RepoFull: "o/r", UpdatedAt: time.Now().Add(-3 * time.Hour), StateLabel: "OPEN", CIStatus: "SUCCESS"},
+	}
+	a.startPRIdx = 0
+
+	lines := a.renderStartPRLines([]string{"header"})
+	rendered := strings.Join(lines, "\n")
+	if !strings.Contains(rendered, "  #11") || !strings.Contains(rendered, "  #12") {
+		t.Fatalf("expected identical left padding for selected and non-selected rows, got=%s", rendered)
 	}
 }
 

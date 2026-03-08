@@ -23,6 +23,9 @@ type Config struct {
 	IntervalSec int
 	Concurrency int
 	NoGitHub    bool
+	WorkspaceMode  bool
+	WorkspaceDepth int
+	WorkspaceRoot  string
 	Global      GlobalConfig
 }
 
@@ -67,13 +70,9 @@ func Parse(args []string) (Config, error) {
 	interval := fs.Int("interval", DefaultIntervalSec, "refresh interval in seconds")
 	concurrency := fs.Int("concurrency", DefaultConcurrency, "fetch concurrency")
 	noGitHub := fs.Bool("no-github", false, "disable GitHub features")
+	workspaceDepth := fs.Int("workspaces", 0, "scan current directory as workspace, optional depth")
 
-	if err := fs.Parse(args); err != nil {
-		return Config{}, err
-	}
-
-	globalCfg, err := LoadGlobalConfig()
-	if err != nil {
+	if err := fs.Parse(normalizeWorkspaceArgs(args)); err != nil {
 		return Config{}, err
 	}
 
@@ -84,10 +83,69 @@ func Parse(args []string) (Config, error) {
 		*concurrency = DefaultConcurrency
 	}
 
+	workspaceMode := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "workspaces" {
+			workspaceMode = true
+		}
+	})
+
+	if workspaceMode {
+		depth := *workspaceDepth
+		if depth <= 0 {
+			depth = 0
+		}
+		wd, err := os.Getwd()
+		if err != nil {
+			return Config{}, err
+		}
+		root, err := filepath.Abs(wd)
+		if err != nil {
+			return Config{}, err
+		}
+		global := GlobalConfig{
+			Workspaces: WorkspaceMap{
+				root: {root},
+			},
+		}
+		return Config{
+			IntervalSec:    *interval,
+			Concurrency:    *concurrency,
+			NoGitHub:       *noGitHub,
+			WorkspaceMode:  true,
+			WorkspaceDepth: depth,
+			WorkspaceRoot:  root,
+			Global:         global,
+		}, nil
+	}
+
+	globalCfg, err := LoadGlobalConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		IntervalSec: *interval,
-		Concurrency: *concurrency,
-		NoGitHub:    *noGitHub,
-		Global:      globalCfg,
+		IntervalSec:    *interval,
+		Concurrency:    *concurrency,
+		NoGitHub:       *noGitHub,
+		WorkspaceMode:  false,
+		WorkspaceDepth: 0,
+		WorkspaceRoot:  "",
+		Global:         globalCfg,
 	}, nil
+}
+
+func normalizeWorkspaceArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "-workspaces" || arg == "--workspaces" {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				out = append(out, arg+"=1")
+				continue
+			}
+		}
+		out = append(out, arg)
+	}
+	return out
 }

@@ -72,9 +72,12 @@ peekgit
 | `--interval` | 300 | 自动刷新间隔（秒） |
 | `--concurrency` | 3 | 并发 fetch 数量 |
 | `--no-github` | false | 禁用 GitHub 功能（PR、Issues） |
+| `--workspaces` | 不启用 | 扫描当前目录为工作区；支持可选深度（`--workspaces` 默认深度为 1，`--workspaces=0` 仅检查当前目录本身，`--workspaces=n` 检查到第 n 层子目录） |
 
 ```bash
 peekgit --interval 60 --concurrency 5
+peekgit --workspaces
+peekgit --workspaces=2
 ```
 
 ## 全局配置文件
