@@ -16,6 +16,20 @@ go test ./...
 go vet ./...
 ```
 
+## 本地开发
+
+项目配置了 [Air](https://github.com/cosmtrek/air) 热重载工具，可在代码变更时自动重新编译运行：
+
+```bash
+# 安装 Air（如果尚未安装）
+go install github.com/cosmtrek/air@latest
+
+# 启动热重载开发模式
+air
+```
+
+`.air.toml` 已配置好，无需额外设置。
+
 ## 开发约定
 
 - 保持改动聚焦：一个 PR 尽量只解决一个问题。
