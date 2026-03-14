@@ -386,6 +386,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case pullDoneMsg:
+		a.repoRefreshing[m.repoPath] = false
 		if m.err != nil {
 			a.errText = "pull 失败: " + m.err.Error()
 		} else {
@@ -394,6 +395,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.refreshAllCmd()
 
 	case pullAllDoneMsg:
+		for path := range a.repoRefreshing {
+			a.repoRefreshing[path] = false
+		}
 		if m.failed > 0 && m.lastErr != nil {
 			a.errText = fmt.Sprintf("pull 完成: %d 成功, %d 失败 (%s)", m.completed, m.failed, m.lastErr.Error())
 		} else {
@@ -666,10 +670,15 @@ func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.loadRemoteCmd(visible[a.selectedIndex])
 	case "f":
 		if len(visible) > 0 {
+			repo := visible[a.selectedIndex]
+			a.repoRefreshing[repo.Path] = true
 			return a, a.pullCurrentCmd()
 		}
 	case "F":
 		if len(a.repos) > 0 {
+			for _, repo := range a.repos {
+				a.repoRefreshing[repo.Path] = true
+			}
 			return a, a.pullAllCmd()
 		}
 	case "g":
