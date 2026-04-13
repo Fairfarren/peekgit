@@ -24,6 +24,7 @@ tests/
 Go (1.21+): Follow standard conventions
 
 ## Recent Changes
+- 003-cli-help-version: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 002-ui-ux-beautification: Added Go 1.24.0 + `github.com/charmbracelet/bubbles`, `github.com/charmbracelet/bubbletea`, `github.com/charmbracelet/lipgloss`
 
 - 001-pr-list-diff: Added Go (1.21+) + `charmbracelet/bubbletea`, `charmbracelet/lipgloss`, `google/go-github`

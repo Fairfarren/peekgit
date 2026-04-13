@@ -35,6 +35,11 @@ func run(args []string, errOut io.Writer) int {
 		return 2
 	}
 
+	if cfg.ShowVersion {
+		fmt.Printf("peekgit version %s\n", config.Version)
+		return 0
+	}
+
 	app := tui.New(cfg)
 	if err := runProgram(app); err != nil {
 		if _, writeErr := fmt.Fprintf(errOut, "运行失败: %v\n", err); writeErr != nil {
