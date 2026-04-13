@@ -763,6 +763,12 @@ func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Switch to left panel
 		a.diffFocusLeft = true
 		return a, nil
+	case "ctrl+u":
+		a.diffViewport.LineUp(1)
+		return a, nil
+	case "ctrl+d":
+		a.diffViewport.LineDown(1)
+		return a, nil
 	}
 
 	// In simple mode, always scroll the diff content
@@ -1433,6 +1439,7 @@ func (a *App) viewDiff() string {
 	help := panelHint + HelpDescStyle.Render("  ") +
 		HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render("选择  ") +
 		HelpKeyStyle.Render("←→") + HelpDescStyle.Render("切换面板  ") +
+		HelpKeyStyle.Render("ctrl+u/d") + HelpDescStyle.Render("逐行滚动  ") +
 		HelpDescStyle.Render("[") + HelpKeyStyle.Render("q") + HelpDescStyle.Render("]退出  ") +
 		cursorStyle.Render("●") + HelpDescStyle.Render(fmt.Sprintf(" %d files", fileCount))
 	lines := []string{"", panels, help}
@@ -1679,7 +1686,7 @@ func formatRelativeTime(t time.Time, now time.Time) string {
 // viewDiffSimple renders a simple single-panel diff view for small screens
 func (a *App) viewDiffSimple() string {
 	header := diffHeaderStyle.Render("Diff")
-	help := HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
+	help := HelpKeyStyle.Render("ctrl+u/d") + HelpDescStyle.Render(" 滚动  ") + HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
 
 	headerLines := []string{header}
 
