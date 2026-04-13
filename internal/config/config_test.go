@@ -188,3 +188,35 @@ func TestLoadGlobalConfigExpandHomePath(t *testing.T) {
 		t.Fatalf("paths[2] = %q", paths[2])
 	}
 }
+
+func TestParseVersion(t *testing.T) {
+	tests := [][]string{
+		{"--version"},
+		{"-version"},
+		{"-v"},
+	}
+
+	for _, tc := range tests {
+		cfg, err := Parse(tc)
+		if err != nil {
+			t.Fatalf("Parse(%v) error: %v", tc, err)
+		}
+		if !cfg.ShowVersion {
+			t.Errorf("Parse(%v) ShowVersion = false, want true", tc)
+		}
+	}
+}
+
+func TestParseHelp(t *testing.T) {
+	tests := [][]string{
+		{"--help"},
+		{"-h"},
+	}
+
+	for _, tc := range tests {
+		_, err := Parse(tc)
+		if err == nil {
+			t.Fatalf("Parse(%v) error = nil, want flag.ErrHelp", tc)
+		}
+	}
+}

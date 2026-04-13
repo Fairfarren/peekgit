@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,13 +21,14 @@ type GlobalConfig struct {
 }
 
 type Config struct {
-	IntervalSec int
-	Concurrency int
-	NoGitHub    bool
+	IntervalSec    int
+	Concurrency    int
+	NoGitHub       bool
+	ShowVersion    bool
 	WorkspaceMode  bool
 	WorkspaceDepth int
 	WorkspaceRoot  string
-	Global      GlobalConfig
+	Global         GlobalConfig
 }
 
 // LoadGlobalConfig reads ~/.config/peekgit/config.json
@@ -67,10 +69,19 @@ func LoadGlobalConfig() (GlobalConfig, error) {
 
 func Parse(args []string) (Config, error) {
 	fs := flag.NewFlagSet("peekgit", flag.ContinueOnError)
-	interval := fs.Int("interval", DefaultIntervalSec, "refresh interval in seconds")
-	concurrency := fs.Int("concurrency", DefaultConcurrency, "fetch concurrency")
-	noGitHub := fs.Bool("no-github", false, "disable GitHub features")
-	workspaceDepth := fs.Int("workspaces", 0, "scan current directory as workspace, optional depth")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "PeekGit - 终端里的多仓库监控面板\n\n")
+		fmt.Fprintf(os.Stderr, "用法:\n  peekgit [参数]\n\n")
+		fmt.Fprintf(os.Stderr, "参数:\n")
+		fs.PrintDefaults()
+	}
+
+	interval := fs.Int("interval", DefaultIntervalSec, "自动刷新间隔（秒）")
+	concurrency := fs.Int("concurrency", DefaultConcurrency, "并发 fetch 数量")
+	noGitHub := fs.Bool("no-github", false, "禁用 GitHub 功能（PR、Issues）")
+	workspaceDepth := fs.Int("workspaces", 0, "扫描当前目录为工作区；支持可选深度（默认深度为 1）")
+	showVersion := fs.Bool("version", false, "显示版本信息并退出")
+	vShort := fs.Bool("v", false, "显示版本信息并退出")
 
 	if err := fs.Parse(normalizeWorkspaceArgs(args)); err != nil {
 		return Config{}, err
@@ -89,6 +100,12 @@ func Parse(args []string) (Config, error) {
 			workspaceMode = true
 		}
 	})
+
+	if *showVersion || *vShort {
+		return Config{
+			ShowVersion: true,
+		}, nil
+	}
 
 	if workspaceMode {
 		depth := *workspaceDepth
