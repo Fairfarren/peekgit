@@ -12,6 +12,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 var runProgram = func(model tea.Model) error {
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
@@ -36,7 +42,7 @@ func run(args []string, errOut io.Writer) int {
 	}
 
 	if cfg.ShowVersion {
-		fmt.Printf("peekgit version %s\n", config.Version)
+		fmt.Printf("peekgit version %s (commit: %s, date: %s)\n", version, commit, date)
 		return 0
 	}
 

@@ -10,7 +10,6 @@ import (
 )
 
 const (
-	Version            = "1.0.0"
 	DefaultIntervalSec = 300
 	DefaultConcurrency = 3
 )
