@@ -30,4 +30,17 @@ Go (1.21+): Follow standard conventions
 - 001-pr-list-diff: Added Go (1.21+) + `charmbracelet/bubbletea`, `charmbracelet/lipgloss`, `google/go-github`
 
 <!-- MANUAL ADDITIONS START -->
+## Quality Standards & Tooling
+- **Test Coverage**: Mandatory 100% statement coverage.
+- **CRAP Threshold**: Maximum score of 8 per function (calculated via `go-crap`).
+- **Mutation Testing**: Evaluated with `gremlins` and integrated into CRAP scoring.
+
+## Quality Commands
+```bash
+make test       # Run unit tests
+make cover      # Run tests with coverage profile
+make crap       # Check CRAP scores (threshold <= 8)
+make mutate     # Run mutation testing
+make quality    # Run full coverage + mutation + CRAP quality gate
+```
 <!-- MANUAL ADDITIONS END -->

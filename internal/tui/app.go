@@ -1639,6 +1639,13 @@ func truncateWithEllipsis(s string, maxWidth int) string {
 	return out + "…"
 }
 
+func formatPlural(val int, unit string) string {
+	if val <= 1 {
+		return "about 1 " + unit + " ago"
+	}
+	return fmt.Sprintf("about %d %ss ago", val, unit)
+}
+
 func formatRelativeTime(t time.Time, now time.Time) string {
 	if t.IsZero() {
 		return "-"
@@ -1651,35 +1658,15 @@ func formatRelativeTime(t time.Time, now time.Time) string {
 	case d < time.Minute:
 		return "just now"
 	case d < time.Hour:
-		m := int(d / time.Minute)
-		if m <= 1 {
-			return "about 1 minute ago"
-		}
-		return fmt.Sprintf("about %d minutes ago", m)
+		return formatPlural(int(d/time.Minute), "minute")
 	case d < 24*time.Hour:
-		h := int(d / time.Hour)
-		if h <= 1 {
-			return "about 1 hour ago"
-		}
-		return fmt.Sprintf("about %d hours ago", h)
+		return formatPlural(int(d/time.Hour), "hour")
 	case d < 30*24*time.Hour:
-		day := int(d / (24 * time.Hour))
-		if day <= 1 {
-			return "about 1 day ago"
-		}
-		return fmt.Sprintf("about %d days ago", day)
+		return formatPlural(int(d/(24*time.Hour)), "day")
 	case d < 365*24*time.Hour:
-		month := int(d / (30 * 24 * time.Hour))
-		if month <= 1 {
-			return "about 1 month ago"
-		}
-		return fmt.Sprintf("about %d months ago", month)
+		return formatPlural(int(d/(30*24*time.Hour)), "month")
 	default:
-		year := int(d / (365 * 24 * time.Hour))
-		if year <= 1 {
-			return "about 1 year ago"
-		}
-		return fmt.Sprintf("about %d years ago", year)
+		return formatPlural(int(d/(365*24*time.Hour)), "year")
 	}
 }
 

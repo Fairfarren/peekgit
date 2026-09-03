@@ -42,16 +42,21 @@ func computeCardWidth(availableWidth int, columns int, gap int) int {
 	return w
 }
 
+func clamp(val, min, max int) int {
+	if val < min {
+		return min
+	}
+	if val > max {
+		return max
+	}
+	return val
+}
+
 func moveIndex(current int, total int, columns int, key string) int {
 	if total <= 0 {
 		return 0
 	}
-	if current < 0 {
-		current = 0
-	}
-	if current >= total {
-		current = total - 1
-	}
+	current = clamp(current, 0, total-1)
 
 	var next int
 	switch key {
@@ -67,11 +72,5 @@ func moveIndex(current int, total int, columns int, key string) int {
 		return current
 	}
 
-	if next < 0 {
-		return 0
-	}
-	if next >= total {
-		return total - 1
-	}
-	return next
+	return clamp(next, 0, total-1)
 }

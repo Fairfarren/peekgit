@@ -302,3 +302,73 @@ func TestRepositoryFullNameFromURL(t *testing.T) {
 		t.Fatalf("expected dash for bad url, got=%s", got)
 	}
 }
+
+func TestNewClient(t *testing.T) {
+	c := New(context.Background(), true)
+	if c == nil || c.Authenticated() {
+		t.Fatalf("expected unauthenticated client when noGitHub=true")
+	}
+}
+
+func TestBuildIssueStateLabel(t *testing.T) {
+	cases := []struct {
+		state     string
+		createdBy bool
+		assigned  bool
+		want      string
+	}{
+		{"", true, true, "OPEN | 我创建+指派我"},
+		{"open", true, false, "open | 我创建"},
+		{"open", false, true, "open | 指派我"},
+		{"open", false, false, "open"},
+	}
+	for _, tc := range cases {
+		got := buildIssueStateLabel(tc.state, tc.createdBy, tc.assigned)
+		if got != tc.want {
+			t.Errorf("buildIssueStateLabel(%q, %v, %v) = %q, want %q", tc.state, tc.createdBy, tc.assigned, got, tc.want)
+		}
+	}
+}
+
+func TestSplitRepoFull(t *testing.T) {
+	o, r, ok := splitRepoFull("owner/repo")
+	if !ok || o != "owner" || r != "repo" {
+		t.Fatalf("splitRepoFull(owner/repo) = %s, %s, %v", o, r, ok)
+	}
+	_, _, ok = splitRepoFull("invalid")
+	if ok {
+		t.Fatalf("expected false for invalid repo full name")
+	}
+}
+
+func TestListPRFilesUnauthenticated(t *testing.T) {
+	c := &Client{}
+	_, err := c.ListPRFiles(context.Background(), "owner", "repo", 1)
+	if err != ErrUnauthenticated {
+		t.Fatalf("expected ErrUnauthenticated, got %v", err)
+	}
+}
+
+func TestPullRequestCIStateInvalidRepo(t *testing.T) {
+	c := &Client{}
+	state := c.pullRequestCIState(context.Background(), "invalid", 1)
+	if state != "UNKNOWN" {
+		t.Fatalf("expected UNKNOWN for invalid repo full name, got %s", state)
+	}
+}
+
+func TestListMyPullRequestsErrors(t *testing.T) {
+	c := &Client{}
+	_, err := c.ListMyPullRequests(context.Background())
+	if err != ErrUnauthenticated {
+		t.Fatalf("expected ErrUnauthenticated, got %v", err)
+	}
+}
+
+func TestListMyIssuesErrors(t *testing.T) {
+	c := &Client{}
+	_, err := c.ListMyIssues(context.Background())
+	if err != ErrUnauthenticated {
+		t.Fatalf("expected ErrUnauthenticated, got %v", err)
+	}
+}

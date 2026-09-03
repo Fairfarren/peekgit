@@ -1,6 +1,7 @@
 /peekgit
 /repo-monitor
 coverage.out
+gremlins-report.json
 *.coverprofile
 *.test
 *.exe

@@ -201,27 +201,30 @@ func (c *Client) ListMyPullRequests(ctx context.Context) ([]model.AccountPullReq
 
 	out := make([]model.AccountPullRequestItem, 0, len(result.Issues))
 	for _, it := range result.Issues {
-		if it.GetPullRequestLinks() == nil {
-			continue
+		if item, ok := c.parseAccountPRItem(ctx, it); ok {
+			out = append(out, item)
 		}
-		if !strings.EqualFold(it.GetState(), "open") {
-			continue
-		}
-		repoFull := repositoryFullNameFromURL(it.GetRepositoryURL())
-		ciStatus := c.pullRequestCIState(ctx, repoFull, it.GetNumber())
-		out = append(out, model.AccountPullRequestItem{
-			Number:     it.GetNumber(),
-			Title:      it.GetTitle(),
-			RepoFull:   repoFull,
-			UpdatedAt:  it.GetUpdatedAt().Time,
-			HTMLURL:    it.GetHTMLURL(),
-			StateLabel: strings.ToUpper(it.GetState()),
-			CIStatus:   ciStatus,
-		})
 	}
 
 	c.myPRCache.Set(cacheKey, out, time.Now())
 	return out, nil
+}
+
+func (c *Client) parseAccountPRItem(ctx context.Context, it *gh.Issue) (model.AccountPullRequestItem, bool) {
+	if it.GetPullRequestLinks() == nil || !strings.EqualFold(it.GetState(), "open") {
+		return model.AccountPullRequestItem{}, false
+	}
+	repoFull := repositoryFullNameFromURL(it.GetRepositoryURL())
+	ciStatus := c.pullRequestCIState(ctx, repoFull, it.GetNumber())
+	return model.AccountPullRequestItem{
+		Number:     it.GetNumber(),
+		Title:      it.GetTitle(),
+		RepoFull:   repoFull,
+		UpdatedAt:  it.GetUpdatedAt().Time,
+		HTMLURL:    it.GetHTMLURL(),
+		StateLabel: strings.ToUpper(it.GetState()),
+		CIStatus:   ciStatus,
+	}, true
 }
 
 func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, error) {
@@ -237,74 +240,25 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 		return v, nil
 	}
 
-	queryAuthor := "is:issue is:open author:" + login
-	queryAssignee := "is:issue is:open assignee:" + login
-	opt := &gh.SearchOptions{Sort: "updated", Order: "desc", ListOptions: gh.ListOptions{PerPage: 50}}
-	authorResult, _, err := c.client.Search.Issues(ctx, queryAuthor, opt)
-	if err != nil {
-		return nil, err
-	}
-	assigneeResult, _, err := c.client.Search.Issues(ctx, queryAssignee, opt)
+	authorIssues, assigneeIssues, err := c.searchAuthorAndAssignee(ctx, login)
 	if err != nil {
 		return nil, err
 	}
 
-	merged := make(map[string]model.AccountIssueItem, len(authorResult.Issues)+len(assigneeResult.Issues))
-	collect := func(items []*gh.Issue) {
-		for _, it := range items {
-			if it.GetPullRequestLinks() != nil {
-				continue
-			}
-			if !strings.EqualFold(it.GetState(), "open") {
-				continue
-			}
-
-			repoFull := repositoryFullNameFromURL(it.GetRepositoryURL())
-			key := repoFull + "#" + strconv.Itoa(it.GetNumber())
-
-			assignedToMe := false
-			for _, assignee := range it.Assignees {
-				if strings.EqualFold(assignee.GetLogin(), login) {
-					assignedToMe = true
-					break
-				}
-			}
-			createdByMe := strings.EqualFold(it.GetUser().GetLogin(), login)
-			state := strings.ToUpper(it.GetState())
-			labels := issueLabelNames(it)
-
-			if existing, ok := merged[key]; ok {
-				existing.CreatedByMe = existing.CreatedByMe || createdByMe
-				existing.AssignedToMe = existing.AssignedToMe || assignedToMe
-				if it.GetUpdatedAt().After(existing.UpdatedAt) {
-					existing.UpdatedAt = it.GetUpdatedAt().Time
-					existing.Title = it.GetTitle()
-					existing.Labels = labels
-					existing.HTMLURL = it.GetHTMLURL()
-					existing.StateLabel = state
-				}
-				existing.StateLabel = buildIssueStateLabel(state, existing.CreatedByMe, existing.AssignedToMe)
-				merged[key] = existing
-				continue
-			}
-
-			merged[key] = model.AccountIssueItem{
-				Number:       it.GetNumber(),
-				Title:        it.GetTitle(),
-				Labels:       labels,
-				RepoFull:     repoFull,
-				UpdatedAt:    it.GetUpdatedAt().Time,
-				HTMLURL:      it.GetHTMLURL(),
-				StateLabel:   buildIssueStateLabel(state, createdByMe, assignedToMe),
-				CreatedByMe:  createdByMe,
-				AssignedToMe: assignedToMe,
-			}
-		}
+	merged := make(map[string]model.AccountIssueItem, len(authorIssues)+len(assigneeIssues))
+	for _, it := range authorIssues {
+		collectIssue(merged, it, login)
+	}
+	for _, it := range assigneeIssues {
+		collectIssue(merged, it, login)
 	}
 
-	collect(authorResult.Issues)
-	collect(assigneeResult.Issues)
+	out := sortAccountIssues(merged)
+	c.myIssueCache.Set(cacheKey, out, time.Now())
+	return out, nil
+}
 
+func sortAccountIssues(merged map[string]model.AccountIssueItem) []model.AccountIssueItem {
 	out := make([]model.AccountIssueItem, 0, len(merged))
 	for _, it := range merged {
 		out = append(out, it)
@@ -312,9 +266,72 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 	sort.Slice(out, func(i int, j int) bool {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
+	return out
+}
 
-	c.myIssueCache.Set(cacheKey, out, time.Now())
-	return out, nil
+func (c *Client) searchAuthorAndAssignee(ctx context.Context, login string) ([]*gh.Issue, []*gh.Issue, error) {
+	queryAuthor := "is:issue is:open author:" + login
+	queryAssignee := "is:issue is:open assignee:" + login
+	opt := &gh.SearchOptions{Sort: "updated", Order: "desc", ListOptions: gh.ListOptions{PerPage: 50}}
+	authorResult, _, err := c.client.Search.Issues(ctx, queryAuthor, opt)
+	if err != nil {
+		return nil, nil, err
+	}
+	assigneeResult, _, err := c.client.Search.Issues(ctx, queryAssignee, opt)
+	if err != nil {
+		return nil, nil, err
+	}
+	return authorResult.Issues, assigneeResult.Issues, nil
+}
+
+func isAssignedTo(it *gh.Issue, login string) bool {
+	for _, assignee := range it.Assignees {
+		if strings.EqualFold(assignee.GetLogin(), login) {
+			return true
+		}
+	}
+	return false
+}
+
+func collectIssue(merged map[string]model.AccountIssueItem, it *gh.Issue, login string) {
+	if it.GetPullRequestLinks() != nil || !strings.EqualFold(it.GetState(), "open") {
+		return
+	}
+
+	repoFull := repositoryFullNameFromURL(it.GetRepositoryURL())
+	key := repoFull + "#" + strconv.Itoa(it.GetNumber())
+
+	assignedToMe := isAssignedTo(it, login)
+	createdByMe := strings.EqualFold(it.GetUser().GetLogin(), login)
+	state := strings.ToUpper(it.GetState())
+	labels := issueLabelNames(it)
+
+	if existing, ok := merged[key]; ok {
+		existing.CreatedByMe = existing.CreatedByMe || createdByMe
+		existing.AssignedToMe = existing.AssignedToMe || assignedToMe
+		if it.GetUpdatedAt().After(existing.UpdatedAt) {
+			existing.UpdatedAt = it.GetUpdatedAt().Time
+			existing.Title = it.GetTitle()
+			existing.Labels = labels
+			existing.HTMLURL = it.GetHTMLURL()
+			existing.StateLabel = state
+		}
+		existing.StateLabel = buildIssueStateLabel(state, existing.CreatedByMe, existing.AssignedToMe)
+		merged[key] = existing
+		return
+	}
+
+	merged[key] = model.AccountIssueItem{
+		Number:       it.GetNumber(),
+		Title:        it.GetTitle(),
+		Labels:       labels,
+		RepoFull:     repoFull,
+		UpdatedAt:    it.GetUpdatedAt().Time,
+		HTMLURL:      it.GetHTMLURL(),
+		StateLabel:   buildIssueStateLabel(state, createdByMe, assignedToMe),
+		CreatedByMe:  createdByMe,
+		AssignedToMe: assignedToMe,
+	}
 }
 
 func buildIssueStateLabel(state string, createdByMe bool, assignedToMe bool) string {

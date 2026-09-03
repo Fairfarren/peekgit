@@ -24,9 +24,11 @@ var runProgram = func(model tea.Model) error {
 	return err
 }
 
+var osExit = os.Exit
+
 func main() {
 	code := run(os.Args[1:], os.Stderr)
-	os.Exit(code)
+	osExit(code)
 }
 
 func run(args []string, errOut io.Writer) int {
@@ -35,9 +37,7 @@ func run(args []string, errOut io.Writer) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
-		if _, writeErr := fmt.Fprintf(errOut, "参数解析失败: %v\n", err); writeErr != nil {
-			return 2
-		}
+		fmt.Fprintf(errOut, "参数解析失败: %v\n", err)
 		return 2
 	}
 
@@ -48,9 +48,7 @@ func run(args []string, errOut io.Writer) int {
 
 	app := tui.New(cfg)
 	if err := runProgram(app); err != nil {
-		if _, writeErr := fmt.Fprintf(errOut, "运行失败: %v\n", err); writeErr != nil {
-			return 1
-		}
+		fmt.Fprintf(errOut, "运行失败: %v\n", err)
 		return 1
 	}
 	return 0

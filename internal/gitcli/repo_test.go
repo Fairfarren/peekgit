@@ -198,3 +198,144 @@ func TestListBranchesError(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestCheckoutBranchAndPull(t *testing.T) {
+	fx := fakeExec{out: map[string]string{
+		key("checkout", "feat"): "",
+		key("pull", "--quiet"): "",
+	}}
+	cli := NewWithExecutor(fx)
+	if err := cli.CheckoutBranch(context.Background(), "/tmp/x", "feat"); err != nil {
+		t.Fatalf("checkout failed: %v", err)
+	}
+	if err := cli.Pull(context.Background(), "/tmp/x"); err != nil {
+		t.Fatalf("pull failed: %v", err)
+	}
+}
+
+func TestHasPendingChanges(t *testing.T) {
+	// Case 1: dirty
+	fx1 := fakeExec{out: map[string]string{
+		key("status", "--porcelain"): "M file.go\n",
+	}}
+	cli1 := NewWithExecutor(fx1)
+	if !cli1.HasPendingChanges(context.Background(), "/tmp/x") {
+		t.Fatalf("expected dirty to have pending changes")
+	}
+
+	// Case 2: clean but ahead
+	fx2 := fakeExec{out: map[string]string{
+		key("status", "--porcelain"):                                            "",
+		key("symbolic-ref", "--short", "HEAD"):                                  "main",
+		key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+		key("fetch", "origin", "--quiet"):                                       "",
+		key("rev-list", "--left-right", "--count", "HEAD...origin/main"):        "1 0",
+	}}
+	cli2 := NewWithExecutor(fx2)
+	if !cli2.HasPendingChanges(context.Background(), "/tmp/x") {
+		t.Fatalf("expected ahead to have pending changes")
+	}
+
+	// Case 3: clean but behind
+	fxBehind := fakeExec{out: map[string]string{
+		key("status", "--porcelain"):                                            "",
+		key("symbolic-ref", "--short", "HEAD"):                                  "main",
+		key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+		key("fetch", "origin", "--quiet"):                                       "",
+		key("rev-list", "--left-right", "--count", "HEAD...origin/main"):        "0 1",
+	}}
+	cliBehind := NewWithExecutor(fxBehind)
+	if !cliBehind.HasPendingChanges(context.Background(), "/tmp/x") {
+		t.Fatalf("expected behind to have pending changes")
+	}
+
+	// Case 4: clean and synced
+	fx3 := fakeExec{out: map[string]string{
+		key("status", "--porcelain"):                                            "",
+		key("symbolic-ref", "--short", "HEAD"):                                  "main",
+		key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+		key("fetch", "origin", "--quiet"):                                       "",
+		key("rev-list", "--left-right", "--count", "HEAD...origin/main"):        "0 0",
+	}}
+	cli3 := NewWithExecutor(fx3)
+	if cli3.HasPendingChanges(context.Background(), "/tmp/x") {
+		t.Fatalf("expected synced to have no pending changes")
+	}
+
+	// Case 5: fetch error
+	fxFetchErr := fakeExec{
+		out: map[string]string{
+			key("status", "--porcelain"):                                            "",
+			key("symbolic-ref", "--short", "HEAD"):                                  "main",
+			key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+		},
+		err: map[string]error{
+			key("fetch", "origin", "--quiet"): errors.New("network error"),
+		},
+	}
+	cliFetchErr := NewWithExecutor(fxFetchErr)
+	if cliFetchErr.HasPendingChanges(context.Background(), "/tmp/x") {
+		t.Fatalf("expected fetch error to return false")
+	}
+
+	// Case 6: aheadBehind error
+	fxAheadBehindErr := fakeExec{
+		out: map[string]string{
+			key("status", "--porcelain"):                                            "",
+			key("symbolic-ref", "--short", "HEAD"):                                  "main",
+			key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+			key("fetch", "origin", "--quiet"):                                       "",
+		},
+		err: map[string]error{
+			key("rev-list", "--left-right", "--count", "HEAD...origin/main"): errors.New("rev-list error"),
+		},
+	}
+	cliAheadBehindErr := NewWithExecutor(fxAheadBehindErr)
+	if cliAheadBehindErr.HasPendingChanges(context.Background(), "/tmp/x") {
+		t.Fatalf("expected aheadBehind error to return false")
+	}
+}
+
+func TestHasRemoteUpdate(t *testing.T) {
+	// Case 1: behind
+	fx1 := fakeExec{out: map[string]string{
+		key("symbolic-ref", "--short", "HEAD"):                                  "main",
+		key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+		key("fetch", "origin", "--quiet"):                                       "",
+		key("rev-list", "--left-right", "--count", "HEAD...origin/main"):        "0 2",
+	}}
+	cli1 := NewWithExecutor(fx1)
+	if !cli1.HasRemoteUpdate(context.Background(), "/tmp/x") {
+		t.Fatalf("expected behind to have remote update")
+	}
+
+	// Case 2: synced
+	fx2 := fakeExec{out: map[string]string{
+		key("symbolic-ref", "--short", "HEAD"):                                  "main",
+		key("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/main",
+		key("fetch", "origin", "--quiet"):                                       "",
+		key("rev-list", "--left-right", "--count", "HEAD...origin/main"):        "0 0",
+	}}
+	cli2 := NewWithExecutor(fx2)
+	if cli2.HasRemoteUpdate(context.Background(), "/tmp/x") {
+		t.Fatalf("expected synced to have no remote update")
+	}
+}
+
+func TestNewCLI(t *testing.T) {
+	cli := New()
+	if cli == nil || cli.exec == nil {
+		t.Fatalf("expected valid CLI instance")
+	}
+}
+
+func TestOSExecutor(t *testing.T) {
+	exec := osExecutor{}
+	out, err := exec.Run(context.Background(), "", "version")
+	if err != nil {
+		t.Fatalf("git version failed: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("expected non-empty output")
+	}
+}

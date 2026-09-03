@@ -25,4 +25,37 @@ func TestMoveIndex(t *testing.T) {
 	if got := moveIndex(4, 5, 2, "down"); got != 4 {
 		t.Fatalf("got=%d", got)
 	}
+	if got := moveIndex(2, 5, 2, "up"); got != 0 {
+		t.Fatalf("got=%d", got)
+	}
+	if got := moveIndex(1, 5, 2, "left"); got != 0 {
+		t.Fatalf("got=%d", got)
+	}
+	if got := moveIndex(1, 5, 2, "right"); got != 2 {
+		t.Fatalf("got=%d", got)
+	}
+	if got := moveIndex(1, 5, 2, "other"); got != 1 {
+		t.Fatalf("got=%d", got)
+	}
+	if got := moveIndex(0, 0, 2, "down"); got != 0 {
+		t.Fatalf("got=%d", got)
+	}
+}
+
+func TestComputeLayoutEdgeCases(t *testing.T) {
+	if got := computeColumns(0, 44, 2); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
+	if got := computeColumns(50, -2, 2); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
+	if got := computeCardWidth(50, 1, 2); got != 50 {
+		t.Errorf("got %d, want 50", got)
+	}
+	if got := computeCardWidth(0, 1, 2); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
+	if got := computeCardWidth(10, 5, 5); got != 1 {
+		t.Errorf("got %d, want 1", got)
+	}
 }

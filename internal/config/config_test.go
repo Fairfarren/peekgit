@@ -220,3 +220,61 @@ func TestParseHelp(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateLimits(t *testing.T) {
+	interval := -1
+	concurrency := 0
+	validateLimits(&interval, &concurrency)
+	if interval != DefaultIntervalSec {
+		t.Errorf("interval = %d, want %d", interval, DefaultIntervalSec)
+	}
+	if concurrency != DefaultConcurrency {
+		t.Errorf("concurrency = %d, want %d", concurrency, DefaultConcurrency)
+	}
+}
+
+func TestLoadGlobalConfigErrors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	// Case 1: Config does not exist -> returns empty map, nil error
+	cfg, err := LoadGlobalConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Workspaces) != 0 {
+		t.Fatalf("expected empty workspaces, got %v", cfg.Workspaces)
+	}
+
+	// Case 2: Config directory is not readable / file is broken JSON
+	configDir := filepath.Join(home, ".config", "peekgit")
+	_ = os.MkdirAll(configDir, 0o755)
+	_ = os.WriteFile(filepath.Join(configDir, "config.json"), []byte("invalid json"), 0o644)
+	_, err = LoadGlobalConfig()
+	if err == nil {
+		t.Fatalf("expected error on invalid json, got nil")
+	}
+}
+
+func TestParseInvalidFlag(t *testing.T) {
+	_, err := Parse([]string{"--invalid-flag"})
+	if err == nil {
+		t.Fatalf("expected error on invalid flag, got nil")
+	}
+}
+
+func TestParseLoadGlobalConfigError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	configDir := filepath.Join(home, ".config", "peekgit")
+	_ = os.MkdirAll(configDir, 0o755)
+	_ = os.WriteFile(filepath.Join(configDir, "config.json"), []byte("{broken json"), 0o644)
+
+	_, err := Parse([]string{})
+	if err == nil {
+		t.Fatalf("expected error when global config is broken, got nil")
+	}
+}

@@ -139,18 +139,16 @@ func (c *CLI) isDirty(ctx context.Context, repoPath string) bool {
 }
 
 func classifySync(ahead int, behind int) model.SyncState {
-	switch {
-	case ahead == 0 && behind == 0:
-		return model.SyncSynced
-	case ahead > 0 && behind == 0:
+	if ahead > 0 {
+		if behind > 0 {
+			return model.SyncDiverged
+		}
 		return model.SyncAhead
-	case ahead == 0 && behind > 0:
-		return model.SyncBehind
-	case ahead > 0 && behind > 0:
-		return model.SyncDiverged
-	default:
-		return model.SyncUnknown
 	}
+	if behind > 0 {
+		return model.SyncBehind
+	}
+	return model.SyncSynced
 }
 
 func (c *CLI) ParseOwnerRepoFromRemote(ctx context.Context, repoPath string) (string, string, error) {
@@ -211,27 +209,28 @@ func (c *CLI) ListBranches(ctx context.Context, repoPath string, dirty bool) ([]
 	lines := strings.Split(out, "\n")
 	branches := make([]model.BranchInfo, 0, len(lines))
 	for _, line := range lines {
-		parts := strings.Split(line, "|")
-		if len(parts) != 3 {
-			continue
+		if b, ok := c.parseBranchInfo(ctx, repoPath, line, dirty); ok {
+			branches = append(branches, b)
 		}
-		current := strings.TrimSpace(parts[2]) == "*"
-		b := model.BranchInfo{Name: parts[0], Upstream: parts[1], Current: current, Dirty: dirty}
-		if b.Upstream != "" {
-			ahead, behind, err := c.aheadBehind(ctx, repoPath, b.Upstream)
-			if err == nil {
-				b.Ahead = ahead
-				b.Behind = behind
-				b.SyncSymbol = model.SyncSymbol(classifySync(ahead, behind), ahead, behind)
-			} else {
-				b.SyncSymbol = "—"
-			}
-		} else {
-			b.SyncSymbol = "—"
-		}
-		branches = append(branches, b)
 	}
 	return branches, nil
+}
+
+func (c *CLI) parseBranchInfo(ctx context.Context, repoPath, line string, dirty bool) (model.BranchInfo, bool) {
+	parts := strings.Split(line, "|")
+	if len(parts) != 3 {
+		return model.BranchInfo{}, false
+	}
+	current := strings.TrimSpace(parts[2]) == "*"
+	b := model.BranchInfo{Name: parts[0], Upstream: parts[1], Current: current, Dirty: dirty, SyncSymbol: "—"}
+	if b.Upstream != "" {
+		if ahead, behind, err := c.aheadBehind(ctx, repoPath, b.Upstream); err == nil {
+			b.Ahead = ahead
+			b.Behind = behind
+			b.SyncSymbol = model.SyncSymbol(classifySync(ahead, behind), ahead, behind)
+		}
+	}
+	return b, true
 }
 
 func (c *CLI) CheckoutBranch(ctx context.Context, repoPath string, branchName string) error {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Fairfarren/peekgit/internal/config"
 	"github.com/Fairfarren/peekgit/internal/model"
@@ -108,5 +109,48 @@ func TestWorkspaceModeStartsOnHomeAndInitRefreshes(t *testing.T) {
 	}
 	if !a.loading {
 		t.Fatalf("expected loading to be true after startup refresh command setup")
+	}
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	now := time.Now()
+	if got := formatRelativeTime(now.Add(5*time.Second), now); got != "just now" {
+		t.Errorf("got %q, want just now", got)
+	}
+	if got := formatRelativeTime(time.Time{}, now); got != "-" {
+		t.Errorf("got %q, want -", got)
+	}
+	if got := formatRelativeTime(now.Add(-30*time.Second), now); got != "just now" {
+		t.Errorf("got %q, want just now", got)
+	}
+	if got := formatRelativeTime(now.Add(-time.Minute), now); got != "about 1 minute ago" {
+		t.Errorf("got %q, want about 1 minute ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-5*time.Minute), now); got != "about 5 minutes ago" {
+		t.Errorf("got %q, want about 5 minutes ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-time.Hour), now); got != "about 1 hour ago" {
+		t.Errorf("got %q, want about 1 hour ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-3*time.Hour), now); got != "about 3 hours ago" {
+		t.Errorf("got %q, want about 3 hours ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-24*time.Hour), now); got != "about 1 day ago" {
+		t.Errorf("got %q, want about 1 day ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-4*24*time.Hour), now); got != "about 4 days ago" {
+		t.Errorf("got %q, want about 4 days ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-35*24*time.Hour), now); got != "about 1 month ago" {
+		t.Errorf("got %q, want about 1 month ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-70*24*time.Hour), now); got != "about 2 months ago" {
+		t.Errorf("got %q, want about 2 months ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-400*24*time.Hour), now); got != "about 1 year ago" {
+		t.Errorf("got %q, want about 1 year ago", got)
+	}
+	if got := formatRelativeTime(now.Add(-800*24*time.Hour), now); got != "about 2 years ago" {
+		t.Errorf("got %q, want about 2 years ago", got)
 	}
 }
