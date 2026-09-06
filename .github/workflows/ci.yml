@@ -2,9 +2,12 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [ master ]
 
 jobs:
   test:
+    name: Unit Test & Vet
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,3 +23,59 @@ jobs:
 
       - name: Go vet
         run: go vet ./...
+
+  quality-gate:
+    name: CRAP Analysis & Mutation Testing
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Cache Quality Tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/go-crap
+            ~/go/bin/gremlins
+          key: quality-tools-${{ runner.os }}-go1.24-v1
+
+      - name: Install Quality Tools
+        run: |
+          which go-crap || go install github.com/padiazg/go-crap@latest
+          which gremlins || go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+
+      - name: Run Tests with Coverage Profile
+        run: |
+          go test -v -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Run Full Mutation Testing (Gremlins)
+        run: |
+          gremlins unleash -o gremlins-report.json
+
+      - name: Run CRAP Analysis (Threshold <= 8)
+        if: success() || failure()
+        run: |
+          echo "### 🔍 CRAP Analysis Summary (Threshold <= 8)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go-crap scan --coverage-profile coverage.out --threshold 8 --format table | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # Annotate GitHub PR and enforce hard threshold
+          go-crap scan --coverage-profile coverage.out --threshold 8 --fail-above --format github
+
+      - name: Enforce 100% Test Coverage Baseline
+        if: success() || failure()
+        run: |
+          echo "### 📊 Test Coverage Enforcement" >> $GITHUB_STEP_SUMMARY
+          COVERAGE=$(go tool cover -func=coverage.out | grep "total:" | awk '{print $3}')
+          echo "**Total Coverage:** \`${COVERAGE}\` (Mandatory: \`100.0%\`)" >> $GITHUB_STEP_SUMMARY
+          if [ "$COVERAGE" != "100.0%" ]; then
+            echo "::error::Total test coverage is ${COVERAGE}, which fails the mandatory 100.0% baseline requirement."
+            exit 1
+          fi

@@ -20,66 +20,67 @@ func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
 	if depth <= 0 {
 		depth = 0
 	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return nil, err
-	}
+	absRoot, _ := filepath.Abs(root)
 
 	repos := make([]RepoDir, 0)
 	seen := make(map[string]struct{})
 
-	var walk func(path string, d int)
-	walk = func(path string, d int) {
-		ok, err := IsGitRepo(path)
-		if err == nil && ok {
-			if _, exists := seen[path]; !exists {
-				seen[path] = struct{}{}
-				repos = append(repos, RepoDir{Name: filepath.Base(path), Path: path})
-			}
-		}
-
-		if d >= depth {
-			return
-		}
-
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			if entry.Name() == ".git" {
-				continue
-			}
-			walk(filepath.Join(path, entry.Name()), d+1)
-		}
-	}
-
-	walk(absRoot, 0)
+	walkDirectory(absRoot, depth, 0, seen, &repos)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].Path < repos[j].Path })
 	return repos, nil
+}
+
+func addRepoIfFound(path string, seen map[string]struct{}, repos *[]RepoDir) {
+	ok, err := IsGitRepo(path)
+	if err == nil && ok {
+		if _, exists := seen[path]; !exists {
+			seen[path] = struct{}{}
+			*repos = append(*repos, RepoDir{Name: filepath.Base(path), Path: path})
+		}
+	}
+}
+
+func walkDirectory(path string, depth, d int, seen map[string]struct{}, repos *[]RepoDir) {
+	addRepoIfFound(path, seen, repos)
+
+	if d >= depth {
+		return
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != ".git" {
+			walkDirectory(filepath.Join(path, entry.Name()), depth, d+1, seen, repos)
+		}
+	}
+}
+
+func expandIfWildcard(p string) ([]RepoDir, bool) {
+	if strings.HasSuffix(p, "/*") || strings.HasSuffix(p, "\\*") {
+		parentPath := p[:len(p)-2]
+		expanded, err := expandWildcardPath(parentPath)
+		if err == nil {
+			return expanded, true
+		}
+		return nil, true
+	}
+	return nil, false
 }
 
 func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 	repos := make([]RepoDir, 0, len(paths))
 	for _, p := range paths {
-		// Handle wildcard path ending with /*
-		if strings.HasSuffix(p, "/*") || strings.HasSuffix(p, "\\*") {
-			parentPath := p[:len(p)-2]
-			expanded, err := expandWildcardPath(parentPath)
-			if err != nil {
-				continue
+		if expanded, handled := expandIfWildcard(p); handled {
+			if len(expanded) > 0 {
+				repos = append(repos, expanded...)
 			}
-			repos = append(repos, expanded...)
 			continue
 		}
 
-		absPath, err := filepath.Abs(p)
-		if err != nil {
-			continue
-		}
+		absPath, _ := filepath.Abs(p)
 
 		ok, err := IsGitRepo(absPath)
 		if err != nil || !ok {
@@ -104,7 +105,11 @@ func IsGitRepo(path string) (bool, error) {
 		return true, nil
 	}
 
-	b, err := os.ReadFile(gitPath)
+	return isGitWorktreeFile(path, gitPath)
+}
+
+func isGitWorktreeFile(repoPath, gitFilePath string) (bool, error) {
+	b, err := os.ReadFile(gitFilePath)
 	if err != nil {
 		return false, err
 	}
@@ -117,7 +122,7 @@ func IsGitRepo(path string) (bool, error) {
 		return false, nil
 	}
 	if !filepath.IsAbs(gdir) {
-		gdir = filepath.Join(path, gdir)
+		gdir = filepath.Join(repoPath, gdir)
 	}
 	st, err := os.Stat(gdir)
 	if err != nil {
@@ -129,21 +134,19 @@ func IsGitRepo(path string) (bool, error) {
 	return st.IsDir(), nil
 }
 
+func normalizeParentPath(parentPath string) string {
+	if parentPath == "" {
+		return string(filepath.Separator)
+	}
+	if len(parentPath) == 2 && parentPath[1] == ':' {
+		return parentPath + string(filepath.Separator)
+	}
+	return parentPath
+}
+
 // expandWildcardPath scans the parent directory and returns all git repo subdirectories
 func expandWildcardPath(parentPath string) ([]RepoDir, error) {
-	// Handle edge case where wildcard was applied to filesystem root
-	// e.g., "/*" becomes "" or "C:\\*" becomes "C:"
-	if parentPath == "" {
-		parentPath = string(filepath.Separator)
-	} else if len(parentPath) == 2 && parentPath[1] == ':' {
-		// Windows drive letter without separator (e.g., "C:")
-		parentPath = parentPath + string(filepath.Separator)
-	}
-
-	absParent, err := filepath.Abs(parentPath)
-	if err != nil {
-		return nil, err
-	}
+	absParent, _ := filepath.Abs(normalizeParentPath(parentPath))
 
 	entries, err := os.ReadDir(absParent)
 	if err != nil {
