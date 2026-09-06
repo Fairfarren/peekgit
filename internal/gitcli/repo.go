@@ -255,13 +255,7 @@ func (c *CLI) HasPendingChanges(ctx context.Context, repoPath string) bool {
 		return true
 	}
 
-	// Get current branch
 	branch := c.currentBranch(ctx, repoPath)
-	if branch == "" {
-		return false
-	}
-
-	// Try to get upstream branch
 	upstream := c.resolveUpstream(ctx, repoPath, branch)
 	if upstream == "" {
 		// No upstream configured, can't check for unpushed commits
@@ -290,13 +284,7 @@ func (c *CLI) HasPendingChanges(ctx context.Context, repoPath string) bool {
 // It checks if local branch is behind remote (needs pull).
 // This is a lightweight check that performs a quick git fetch.
 func (c *CLI) HasRemoteUpdate(ctx context.Context, repoPath string) bool {
-	// Get current branch
 	branch := c.currentBranch(ctx, repoPath)
-	if branch == "" {
-		return false
-	}
-
-	// Try to get upstream branch
 	upstream := c.resolveUpstream(ctx, repoPath, branch)
 	if upstream == "" {
 		// No upstream configured, can't check for remote updates

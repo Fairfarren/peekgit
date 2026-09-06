@@ -178,12 +178,8 @@ func New(cfg config.Config) *App {
 	wsKeys := sortedWorkspaceKeys(cfg.Global.Workspaces)
 	wsCounts := calcWorkspaceCounts(cfg.Global.Workspaces, wsKeys)
 	if cfg.WorkspaceMode && len(wsKeys) > 0 {
-		repos, err := workspace.ScanReposWithDepth(cfg.WorkspaceRoot, cfg.WorkspaceDepth)
-		if err != nil {
-			wsCounts = map[string]int{wsKeys[0]: 0}
-		} else {
-			wsCounts = map[string]int{wsKeys[0]: len(repos)}
-		}
+		repos, _ := workspace.ScanReposWithDepth(cfg.WorkspaceRoot, cfg.WorkspaceDepth)
+		wsCounts = map[string]int{wsKeys[0]: len(repos)}
 	}
 
 	initialScreen := screenWorkspaces
@@ -247,312 +243,398 @@ func (a *App) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+func tickMsgFunc(t time.Time) tea.Msg {
+	return tickMsg(t)
+}
+
 func tickCmd(intervalSec int) tea.Cmd {
-	return tea.Tick(time.Duration(intervalSec)*time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
+	return tea.Tick(time.Duration(intervalSec)*time.Second, tickMsgFunc)
+}
+
+func configWatchTickMsgFunc(t time.Time) tea.Msg {
+	return configWatchTickMsg(t)
 }
 
 func configWatchTickCmd() tea.Cmd {
-	return tea.Tick(time.Duration(configWatchIntervalSec)*time.Second, func(t time.Time) tea.Msg {
-		return configWatchTickMsg(t)
-	})
+	return tea.Tick(time.Duration(configWatchIntervalSec)*time.Second, configWatchTickMsgFunc)
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := a.handleLifecycleMsg(msg); ok {
+		return a, cmd
+	}
+	if cmd, ok := a.handleGitMsg(msg); ok {
+		return a, cmd
+	}
+	if cmd, ok := a.handleAccountAndWorkspaceMsg(msg); ok {
+		return a, cmd
+	}
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		return a.handleKeyMsg(keyMsg)
+	}
+	return a, nil
+}
+
+func (a *App) handleLifecycleMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		a.spinner, cmd = a.spinner.Update(msg)
-		return a, cmd
-
+		return cmd, true
 	case tea.WindowSizeMsg:
 		a.width = m.Width
 		a.height = m.Height
 		a.recomputeGrid()
 		a.diffViewport.Width = max(20, a.width-2)
 		a.diffViewport.Height = max(5, a.height-4)
-		return a, nil
-
-	case refreshDoneMsg:
-		if m.err != nil {
-			if m.seq != a.refreshSeq {
-				return a, nil
-			}
-			a.loading = false
-			a.repoRefreshPending = 0
-			a.repoRefreshing = make(map[string]bool)
-			a.errText = m.err.Error()
-			return a, nil
-		}
-		if m.seq != a.refreshSeq {
-			return a, nil
-		}
-
-		a.errText = ""
-		repoDirs := dedupeRepoDirsByPath(m.repos)
-		existing := make(map[string]model.RepoStatus, len(a.repos))
-		for _, repo := range a.repos {
-			existing[repo.Path] = repo
-		}
-
-		nextRepos := make([]model.RepoStatus, 0, len(repoDirs))
-		for _, repo := range repoDirs {
-			if prev, ok := existing[repo.Path]; ok {
-				prev.Name = repo.Name
-				prev.Path = repo.Path
-				nextRepos = append(nextRepos, prev)
-				continue
-			}
-			nextRepos = append(nextRepos, model.RepoStatus{Name: repo.Name, Path: repo.Path, Sync: model.SyncUnknown})
-		}
-		sort.Slice(nextRepos, func(i int, j int) bool { return nextRepos[i].Name < nextRepos[j].Name })
-		a.repos = nextRepos
-
-		a.repoRefreshing = make(map[string]bool, len(a.repos))
-		a.repoRefreshPending = 0
-		cmds := make([]tea.Cmd, 0, len(a.repos))
-		for _, repo := range a.repos {
-			a.repoRefreshing[repo.Path] = true
-			a.repoRefreshPending++
-			cmds = append(cmds, a.refreshRepoCmd(m.seq, repo.Name, repo.Path))
-		}
-		a.loading = a.repoRefreshPending > 0
-
-		if len(a.repos) == 0 {
-			a.selectedIndex = 0
-		} else if a.selectedIndex >= len(a.repos) {
-			a.selectedIndex = len(a.repos) - 1
-		}
-		a.recomputeGrid()
-		if len(cmds) == 0 {
-			return a, nil
-		}
-		return a, tea.Batch(cmds...)
-
-	case repoRefreshDoneMsg:
-		if m.seq != a.refreshSeq {
-			return a, nil
-		}
-		a.updateRepoStatus(m.status)
-		if a.repoRefreshing[m.status.Path] {
-			a.repoRefreshing[m.status.Path] = false
-			if a.repoRefreshPending > 0 {
-				a.repoRefreshPending--
-			}
-		}
-		if a.repoRefreshPending == 0 {
-			a.loading = false
-		}
-		return a, nil
-
-	case remoteLoadedMsg:
-		if a.currentRepoPath() != m.repoPath {
-			return a, nil
-		}
-		a.prList = m.prs
-		a.issues = m.issues
-		a.remoteErr = m.remoteErr
-		a.updateRepoOpenCounts(m.repoPath, m.prOpen, m.issueOpen)
-		return a, nil
-
-	case diffLoadedMsg:
-		a.diffLoading = false
-		if m.err != nil {
-			a.errText = m.err.Error()
-			return a, nil
-		}
-		a.errText = ""
-		a.diffContent = m.content
-		if len(m.files) > 0 {
-			a.diffTree = BuildDiffTree(m.files)
-		} else {
-			a.diffTree = ParseDiff(m.content)
-		}
-		a.diffFileIdx = 0
-		a.diffLeftOffset = 0
-		a.diffFocusLeft = true
-		// Set content for right panel (first file or empty)
-		if len(a.diffTree.Files) > 0 {
-			content := a.diffTree.Files[0].Content
-			if content == "" {
-				content = "Diff 内容由于 PR 过大无法直接通过 API 获取，请在浏览器中查看。"
-			}
-			a.diffViewport.SetContent(colorizeDiff(content))
-		} else {
-			a.diffViewport.SetContent(colorizeDiff(m.content))
-		}
-		a.setSearch(a.diffSearch)
-		return a, nil
-
-	case pullDoneMsg:
-		a.repoRefreshing[m.repoPath] = false
-		if m.err != nil {
-			a.errText = "pull 失败: " + m.err.Error()
-		} else {
-			a.errText = ""
-		}
-		return a, a.refreshAllCmd()
-
-	case pullAllDoneMsg:
-		for path := range a.repoRefreshing {
-			a.repoRefreshing[path] = false
-		}
-		if m.failed > 0 && m.lastErr != nil {
-			a.errText = fmt.Sprintf("pull 完成: %d 成功, %d 失败 (%s)", m.completed, m.failed, m.lastErr.Error())
-		} else {
-			a.errText = ""
-		}
-		return a, a.refreshAllCmd()
-
-	case lazygitDoneMsg:
-		if m.err != nil {
-			a.errText = fmt.Sprintf("lazygit 执行失败: %v", m.err)
-		} else {
-			a.errText = ""
-		}
-		return a, a.refreshAllCmd()
-
+		return nil, true
 	case tickMsg:
-		cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
-		if len(a.workspaces) > 0 {
-			cmds = append(cmds, a.workspaceCheckCmd())
-		}
-		if a.screen == screenHome && !a.loading {
-			cmds = append(cmds, a.refreshAllCmd())
-		}
-		return a, tea.Batch(cmds...)
-
+		return a.handleTick(), true
 	case configWatchTickMsg:
 		if a.cfg.WorkspaceMode {
-			return a, nil
+			return nil, true
 		}
-		return a, tea.Batch(configWatchTickCmd(), a.reloadGlobalConfigCmd())
-
+		return tea.Batch(configWatchTickCmd(), a.reloadGlobalConfigCmd()), true
 	case configReloadedMsg:
-		if m.err != nil {
-			a.errText = "配置文件错误: " + m.err.Error()
-			return a, nil
+		return a.handleConfigReloaded(m), true
+	}
+	return nil, false
+}
+
+func (a *App) handleTick() tea.Cmd {
+	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
+	if len(a.workspaces) > 0 {
+		cmds = append(cmds, a.workspaceCheckCmd())
+	}
+	if a.screen == screenHome && !a.loading {
+		cmds = append(cmds, a.refreshAllCmd())
+	}
+	return tea.Batch(cmds...)
+}
+
+func (a *App) handleConfigReloaded(m configReloadedMsg) tea.Cmd {
+	if m.err != nil {
+		a.errText = "配置文件错误: " + m.err.Error()
+		return nil
+	}
+	if reflect.DeepEqual(a.cfg.Global, m.global) {
+		return nil
+	}
+	a.applyGlobalConfig(m.global)
+	a.errText = ""
+
+	cmds := make([]tea.Cmd, 0, 2)
+	if len(a.workspaces) > 0 {
+		cmds = append(cmds, a.workspaceCheckCmd())
+	}
+	if a.screen != screenWorkspaces {
+		cmds = append(cmds, a.refreshAllCmd())
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+func (a *App) handleGitMsg(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
+	case refreshDoneMsg:
+		return a.handleRefreshDone(m), true
+	case repoRefreshDoneMsg:
+		return a.handleRepoRefreshDone(m), true
+	case remoteLoadedMsg:
+		return a.handleRemoteLoaded(m), true
+	case diffLoadedMsg:
+		return a.handleDiffLoaded(m), true
+	case pullDoneMsg:
+		return a.handlePullDone(m), true
+	case pullAllDoneMsg:
+		return a.handlePullAllDone(m), true
+	case lazygitDoneMsg:
+		return a.handleLazygitDone(m), true
+	}
+	return nil, false
+}
+
+func (a *App) handleRefreshDone(m refreshDoneMsg) tea.Cmd {
+	if m.seq != a.refreshSeq {
+		return nil
+	}
+	if m.err != nil {
+		a.loading = false
+		a.repoRefreshPending = 0
+		a.repoRefreshing = make(map[string]bool)
+		a.errText = m.err.Error()
+		return nil
+	}
+
+	a.errText = ""
+	a.rebuildReposFromDirs(m.repos)
+	cmds := a.triggerRepoRefreshes(m.seq)
+	a.loading = a.repoRefreshPending > 0
+	a.selectedIndex = clamp(a.selectedIndex, 0, max(0, len(a.repos)-1))
+	a.recomputeGrid()
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+func (a *App) rebuildReposFromDirs(dirs []workspace.RepoDir) {
+	repoDirs := dedupeRepoDirsByPath(dirs)
+	existing := make(map[string]model.RepoStatus, len(a.repos))
+	for _, repo := range a.repos {
+		existing[repo.Path] = repo
+	}
+
+	nextRepos := make([]model.RepoStatus, 0, len(repoDirs))
+	for _, repo := range repoDirs {
+		if prev, ok := existing[repo.Path]; ok {
+			prev.Name = repo.Name
+			prev.Path = repo.Path
+			nextRepos = append(nextRepos, prev)
+			continue
 		}
-		if reflect.DeepEqual(a.cfg.Global, m.global) {
-			return a, nil
+		nextRepos = append(nextRepos, model.RepoStatus{Name: repo.Name, Path: repo.Path, Sync: model.SyncUnknown})
+	}
+	sort.Slice(nextRepos, func(i int, j int) bool { return nextRepos[i].Name < nextRepos[j].Name })
+	a.repos = nextRepos
+}
+
+func (a *App) triggerRepoRefreshes(seq int) []tea.Cmd {
+	a.repoRefreshing = make(map[string]bool, len(a.repos))
+	a.repoRefreshPending = 0
+	cmds := make([]tea.Cmd, 0, len(a.repos))
+	for _, repo := range a.repos {
+		a.repoRefreshing[repo.Path] = true
+		a.repoRefreshPending++
+		cmds = append(cmds, a.refreshRepoCmd(seq, repo.Name, repo.Path))
+	}
+	return cmds
+}
+
+func (a *App) handleRepoRefreshDone(m repoRefreshDoneMsg) tea.Cmd {
+	if m.seq != a.refreshSeq {
+		return nil
+	}
+	a.updateRepoStatus(m.status)
+	if a.repoRefreshing[m.status.Path] {
+		a.repoRefreshing[m.status.Path] = false
+		if a.repoRefreshPending > 0 {
+			a.repoRefreshPending--
 		}
-		a.applyGlobalConfig(m.global)
+	}
+	if a.repoRefreshPending == 0 {
+		a.loading = false
+	}
+	return nil
+}
+
+func (a *App) handleRemoteLoaded(m remoteLoadedMsg) tea.Cmd {
+	if a.currentRepoPath() != m.repoPath {
+		return nil
+	}
+	a.prList = m.prs
+	a.issues = m.issues
+	a.remoteErr = m.remoteErr
+	a.updateRepoOpenCounts(m.repoPath, m.prOpen, m.issueOpen)
+	return nil
+}
+
+func (a *App) handleDiffLoaded(m diffLoadedMsg) tea.Cmd {
+	a.diffLoading = false
+	if m.err != nil {
+		a.errText = m.err.Error()
+		return nil
+	}
+	a.errText = ""
+	a.diffContent = m.content
+	if len(m.files) > 0 {
+		a.diffTree = BuildDiffTree(m.files)
+	} else {
+		a.diffTree = ParseDiff(m.content)
+	}
+	a.diffFileIdx = 0
+	a.diffLeftOffset = 0
+	a.diffFocusLeft = true
+	a.setDiffViewportInitialContent(m.content)
+	a.setSearch(a.diffSearch)
+	return nil
+}
+
+func (a *App) setDiffViewportInitialContent(fallbackContent string) {
+	if len(a.diffTree.Files) > 0 {
+		content := a.diffTree.Files[0].Content
+		if content == "" {
+			content = "Diff 内容由于 PR 过大无法直接通过 API 获取，请在浏览器中查看。"
+		}
+		a.diffViewport.SetContent(colorizeDiff(content))
+		return
+	}
+	a.diffViewport.SetContent(colorizeDiff(fallbackContent))
+}
+
+func (a *App) handlePullDone(m pullDoneMsg) tea.Cmd {
+	a.repoRefreshing[m.repoPath] = false
+	if m.err != nil {
+		a.errText = "pull 失败: " + m.err.Error()
+	} else {
 		a.errText = ""
+	}
+	return a.refreshAllCmd()
+}
 
-		cmds := make([]tea.Cmd, 0, 2)
-		if len(a.workspaces) > 0 {
-			cmds = append(cmds, a.workspaceCheckCmd())
-		}
-		if a.screen != screenWorkspaces {
-			cmds = append(cmds, a.refreshAllCmd())
-		}
-		if len(cmds) == 0 {
-			return a, nil
-		}
-		return a, tea.Batch(cmds...)
+func (a *App) handlePullAllDone(m pullAllDoneMsg) tea.Cmd {
+	for path := range a.repoRefreshing {
+		a.repoRefreshing[path] = false
+	}
+	if m.failed > 0 && m.lastErr != nil {
+		a.errText = fmt.Sprintf("pull 完成: %d 成功, %d 失败 (%s)", m.completed, m.failed, m.lastErr.Error())
+	} else {
+		a.errText = ""
+	}
+	return a.refreshAllCmd()
+}
 
+func (a *App) handleLazygitDone(m lazygitDoneMsg) tea.Cmd {
+	if m.err != nil {
+		a.errText = fmt.Sprintf("lazygit 执行失败: %v", m.err)
+	} else {
+		a.errText = ""
+	}
+	return a.refreshAllCmd()
+}
+
+func (a *App) handleAccountAndWorkspaceMsg(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
 	case workspaceCheckDoneMsg:
 		a.workspaceHasUpdate[m.workspace] = m.hasUpdate
 		a.workspaceChecking[m.workspace] = false
-		return a, nil
-
+		return nil, true
 	case accountRemoteLoadedMsg:
 		a.startLoading = false
 		a.startPRs = m.prs
 		a.startIssues = m.items
 		a.startPRErr = m.prErr
 		a.startIssueErr = m.issueErr
-		if a.startPRIdx >= len(a.startPRs) {
-			a.startPRIdx = max(0, len(a.startPRs)-1)
-		}
-		if a.startIssueIdx >= len(a.startIssues) {
-			a.startIssueIdx = max(0, len(a.startIssues)-1)
-		}
-		return a, nil
+		a.startPRIdx = clamp(a.startPRIdx, 0, max(0, len(a.startPRs)-1))
+		a.startIssueIdx = clamp(a.startIssueIdx, 0, max(0, len(a.startIssues)-1))
+		return nil, true
+	}
+	return nil, false
+}
 
-	case tea.KeyMsg:
-		if a.searchMode {
-			return a.updateSearchInput(m)
-		}
-		if a.filterMode {
-			return a.updateFilterInput(m)
-		}
-		switch a.screen {
-		case screenWorkspaces:
-			return a.updateWorkspaces(m)
-		case screenHome:
-			return a.updateHome(m)
-		case screenDetail:
-			return a.updateDetail(m)
-		case screenDiff:
-			return a.updateDiff(m)
-		}
+func (a *App) handleKeyMsg(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.searchMode {
+		return a.updateSearchInput(m)
+	}
+	if a.filterMode {
+		return a.updateFilterInput(m)
+	}
+	switch a.screen {
+	case screenWorkspaces:
+		return a.updateWorkspaces(m)
+	case screenHome:
+		return a.updateHome(m)
+	case screenDetail:
+		return a.updateDetail(m)
+	case screenDiff:
+		return a.updateDiff(m)
 	}
 	return a, nil
 }
 
-func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c":
-		return a, tea.Quit
+func (a *App) canRefreshAccountRemote() bool {
+	return (a.startTab == startTabPR || a.startTab == startTabIssue) && a.gh.Authenticated()
+}
+
+func (a *App) handleWorkspaceRefresh() (tea.Cmd, bool) {
+	if a.canRefreshAccountRemote() {
+		a.startLoading = true
+		a.startPRErr = ""
+		a.startIssueErr = ""
+		a.startRefreshNoticeUntil = time.Now().Add(2 * time.Second)
+		return a.loadAccountRemoteCmd(), true
+	}
+	return nil, true
+}
+
+func (a *App) handleWorkspaceTabKey(key string) (tea.Cmd, bool) {
+	switch key {
 	case "tab":
-		return a, a.switchStartTab(a.startTab + 1)
+		return a.switchStartTab(a.startTab + 1), true
 	case "1":
-		return a, a.switchStartTab(startTabWorkspace)
+		return a.switchStartTab(startTabWorkspace), true
 	case "2":
-		return a, a.switchStartTab(startTabPR)
+		return a.switchStartTab(startTabPR), true
 	case "3":
-		return a, a.switchStartTab(startTabIssue)
+		return a.switchStartTab(startTabIssue), true
 	case "r":
-		if (a.startTab == startTabPR || a.startTab == startTabIssue) && a.gh.Authenticated() {
-			a.startLoading = true
-			a.startPRErr = ""
-			a.startIssueErr = ""
-			a.startRefreshNoticeUntil = time.Now().Add(2 * time.Second)
-			return a, a.loadAccountRemoteCmd()
-		}
-		return a, nil
+		return a.handleWorkspaceRefresh()
+	}
+	return nil, false
+}
+
+func (a *App) handleWorkspaceNavKey(key string) bool {
+	switch key {
 	case "left", "h":
 		if a.startTab == startTabWorkspace {
 			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "left")
-			return a, nil
+		} else {
+			a.switchStartTab(a.startTab - 1)
 		}
-		return a, a.switchStartTab(a.startTab - 1)
+		return true
 	case "right", "l":
 		if a.startTab == startTabWorkspace {
 			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "right")
-			return a, nil
+		} else {
+			a.switchStartTab(a.startTab + 1)
 		}
-		return a, a.switchStartTab(a.startTab + 1)
+		return true
 	case "up", "k":
-		switch a.startTab {
-		case startTabWorkspace:
-			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "up")
-		case startTabPR:
-			if a.startPRIdx > 0 {
-				a.startPRIdx--
-			}
-		case startTabIssue:
-			if a.startIssueIdx > 0 {
-				a.startIssueIdx--
-			}
-		}
+		a.moveWorkspaceSelectionUp()
+		return true
 	case "down", "j":
-		switch a.startTab {
-		case startTabWorkspace:
-			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "down")
-		case startTabPR:
-			if a.startPRIdx < len(a.startPRs)-1 {
-				a.startPRIdx++
-			}
-		case startTabIssue:
-			if a.startIssueIdx < len(a.startIssues)-1 {
-				a.startIssueIdx++
-			}
+		a.moveWorkspaceSelectionDown()
+		return true
+	}
+	return false
+}
+
+func (a *App) moveWorkspaceSelectionUp() {
+	switch a.startTab {
+	case startTabWorkspace:
+		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "up")
+	case startTabPR:
+		if a.startPRIdx > 0 {
+			a.startPRIdx--
 		}
+	case startTabIssue:
+		if a.startIssueIdx > 0 {
+			a.startIssueIdx--
+		}
+	}
+}
+
+func (a *App) moveWorkspaceSelectionDown() {
+	switch a.startTab {
+	case startTabWorkspace:
+		a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "down")
+	case startTabPR:
+		if a.startPRIdx < len(a.startPRs)-1 {
+			a.startPRIdx++
+		}
+	case startTabIssue:
+		if a.startIssueIdx < len(a.startIssues)-1 {
+			a.startIssueIdx++
+		}
+	}
+}
+
+func (a *App) handleWorkspaceActionKey(key string) (tea.Cmd, bool) {
+	switch key {
 	case "o":
-		return a, a.openWorkspaceTabCurrentURLCmd()
+		return a.openWorkspaceTabCurrentURLCmd(), true
 	case "d":
 		if a.startTab == startTabPR && len(a.startPRs) > 0 {
 			a.screen = screenDiff
@@ -560,18 +642,33 @@ func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.diffLoading = true
 			a.diffViewport = viewport.New(max(20, a.width-2), max(5, a.height-4))
 			pr := a.startPRs[a.startPRIdx]
-			return a, a.loadAccountPRDiffCmd(pr.RepoFull, pr.Number)
+			return a.loadAccountPRDiffCmd(pr.RepoFull, pr.Number), true
 		}
+		return nil, true
 	case " ", "enter":
-		if a.startTab != startTabWorkspace {
-			return a, nil
+		if a.startTab == startTabWorkspace && len(a.workspaces) > 0 {
+			a.screen = screenHome
+			a.selectedIndex = 0
+			return a.refreshAllCmd(), true
 		}
-		if len(a.workspaces) == 0 {
-			return a, nil
-		}
-		a.screen = screenHome
-		a.selectedIndex = 0
-		return a, a.refreshAllCmd()
+		return nil, true
+	}
+	return nil, false
+}
+
+func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "q" || key == "ctrl+c" {
+		return a, tea.Quit
+	}
+	if cmd, ok := a.handleWorkspaceTabKey(key); ok {
+		return a, cmd
+	}
+	if a.handleWorkspaceNavKey(key) {
+		return a, nil
+	}
+	if cmd, ok := a.handleWorkspaceActionKey(key); ok {
+		return a, cmd
 	}
 	return a, nil
 }
@@ -616,191 +713,228 @@ func (a *App) updateSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	visible := a.filteredRepos()
-	if len(visible) == 0 {
-		switch msg.String() {
-		case "q", "esc":
-			if a.cfg.WorkspaceMode {
-				return a, tea.Quit
-			}
-			a.screen = screenWorkspaces
-			a.filterMode = false
-			a.filterText = ""
-			return a, nil
-		case "ctrl+c":
-			return a, tea.Quit
-		case "r":
-			a.loading = true
-			return a, a.refreshAllCmd()
-		}
-		return a, nil
-	}
-
-	switch msg.String() {
-	case "q", "esc":
-		if a.cfg.WorkspaceMode {
-			return a, tea.Quit
-		}
-		a.screen = screenWorkspaces
-		a.filterMode = false
-		a.filterText = ""
-		return a, nil
-	case "ctrl+c":
+func (a *App) handleHomeExitKey() (tea.Model, tea.Cmd) {
+	if a.cfg.WorkspaceMode {
 		return a, tea.Quit
-	case "r":
-		return a, a.refreshAllCmd()
-	case "/":
-		a.filterMode = true
-		return a, nil
+	}
+	a.screen = screenWorkspaces
+	a.filterMode = false
+	a.filterText = ""
+	return a, nil
+}
+
+func (a *App) handleHomeNavKey(key string, total int) bool {
+	switch key {
 	case "up", "k":
-		a.selectedIndex = moveIndex(a.selectedIndex, len(visible), a.columns, "up")
+		a.selectedIndex = moveIndex(a.selectedIndex, total, a.columns, "up")
+		return true
 	case "down", "j":
-		a.selectedIndex = moveIndex(a.selectedIndex, len(visible), a.columns, "down")
+		a.selectedIndex = moveIndex(a.selectedIndex, total, a.columns, "down")
+		return true
 	case "left", "h":
-		a.selectedIndex = moveIndex(a.selectedIndex, len(visible), a.columns, "left")
+		a.selectedIndex = moveIndex(a.selectedIndex, total, a.columns, "left")
+		return true
 	case "right", "l":
-		a.selectedIndex = moveIndex(a.selectedIndex, len(visible), a.columns, "right")
-	case " ", "enter":
-		a.screen = screenDetail
-		a.detailTab = tabPR
-		a.detailPRIdx = 0
-		a.detailISIdx = 0
-		a.remoteErr = ""
-		return a, a.loadRemoteCmd(visible[a.selectedIndex])
+		a.selectedIndex = moveIndex(a.selectedIndex, total, a.columns, "right")
+		return true
+	}
+	return false
+}
+
+func (a *App) openSelectedRepoDetail(visible []model.RepoStatus) (tea.Cmd, bool) {
+	if len(visible) == 0 {
+		return nil, true
+	}
+	a.screen = screenDetail
+	a.detailTab = tabPR
+	a.detailPRIdx = 0
+	a.detailISIdx = 0
+	a.remoteErr = ""
+	return a.loadRemoteCmd(visible[a.selectedIndex]), true
+}
+
+func (a *App) handleHomeGitAction(key string, visible []model.RepoStatus) (tea.Cmd, bool) {
+	switch key {
 	case "f":
 		if len(visible) > 0 {
 			repo := visible[a.selectedIndex]
 			a.repoRefreshing[repo.Path] = true
-			return a, a.pullCurrentCmd()
+			return a.pullCurrentCmd(), true
 		}
 	case "F":
 		if len(a.repos) > 0 {
 			for _, repo := range a.repos {
 				a.repoRefreshing[repo.Path] = true
 			}
-			return a, a.pullAllCmd()
+			return a.pullAllCmd(), true
 		}
 	case "g":
 		if len(visible) > 0 {
 			repo := visible[a.selectedIndex]
-			return a, a.runLazygitCmd(repo.Path)
+			return a.runLazygitCmd(repo.Path), true
 		}
+	}
+	return nil, true
+}
+
+func (a *App) handleHomeActionKey(key string, visible []model.RepoStatus) (tea.Cmd, bool) {
+	switch key {
+	case "r":
+		a.loading = true
+		return a.refreshAllCmd(), true
+	case "/":
+		a.filterMode = true
+		return nil, true
+	case " ", "enter":
+		return a.openSelectedRepoDetail(visible)
+	case "f", "F", "g":
+		return a.handleHomeGitAction(key, visible)
+	}
+	return nil, false
+}
+
+func (a *App) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "ctrl+c" {
+		return a, tea.Quit
+	}
+	if key == "q" || key == "esc" {
+		return a.handleHomeExitKey()
+	}
+
+	visible := a.filteredRepos()
+	if a.handleHomeNavKey(key, len(visible)) {
+		return a, nil
+	}
+	if cmd, ok := a.handleHomeActionKey(key, visible); ok {
+		return a, cmd
 	}
 	return a, nil
 }
 
-func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	current := a.currentRepo()
-	switch msg.String() {
-	case "q", "backspace":
-		a.screen = screenHome
-		return a, nil
-	case "r":
-		if current.Name == "" {
-			return a, nil
-		}
-		return a, a.loadRemoteCmd(current)
-	case "tab", "right":
+func (a *App) handleDetailNavKey(key string) bool {
+	switch key {
+	case "tab", "right", "left", "shift+tab":
 		a.detailTab = tab((int(a.detailTab) + 1) % 2)
-	case "left", "shift+tab":
-		a.detailTab = tab((int(a.detailTab) + 1) % 2)
+		return true
 	case "1":
 		a.detailTab = tabPR
+		return true
 	case "2":
 		a.detailTab = tabIssue
+		return true
+	case "up", "k":
+		a.moveDetailSelection(-1)
+		return true
+	case "down", "j":
+		a.moveDetailSelection(1)
+		return true
+	}
+	return false
+}
 
+func (a *App) moveDetailSelection(delta int) {
+	if a.detailTab == tabPR {
+		a.detailPRIdx = clamp(a.detailPRIdx+delta, 0, max(0, len(a.prList)-1))
+	} else if a.detailTab == tabIssue {
+		a.detailISIdx = clamp(a.detailISIdx+delta, 0, max(0, len(a.issues)-1))
+	}
+}
+
+func (a *App) handleDetailActionKey(key string, current model.RepoStatus) (tea.Cmd, bool) {
+	switch key {
+	case "r":
+		if current.Name != "" {
+			return a.loadRemoteCmd(current), true
+		}
+		return nil, true
 	case "o":
-		return a, a.openCurrentURLCmd()
+		return a.openCurrentURLCmd(), true
 	case "d":
 		if a.detailTab == tabPR && len(a.prList) > 0 {
 			a.screen = screenDiff
 			a.diffSourceScreen = screenDetail
 			a.diffLoading = true
 			a.diffViewport = viewport.New(max(20, a.width-2), max(5, a.height-4))
-			return a, a.loadPRDiffCmd(current, a.prList[a.detailPRIdx].Number)
+			return a.loadPRDiffCmd(current, a.prList[a.detailPRIdx].Number), true
 		}
-	case "up", "k":
-		if a.detailTab == tabPR && a.detailPRIdx > 0 {
-			a.detailPRIdx--
-		}
-		if a.detailTab == tabIssue && a.detailISIdx > 0 {
-			a.detailISIdx--
-		}
-	case "down", "j":
-		if a.detailTab == tabPR && a.detailPRIdx < len(a.prList)-1 {
-			a.detailPRIdx++
-		}
-		if a.detailTab == tabIssue && a.detailISIdx < len(a.issues)-1 {
-			a.detailISIdx++
-		}
+		return nil, true
+	}
+	return nil, false
+}
+
+func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "q" || key == "backspace" {
+		a.screen = screenHome
+		return a, nil
+	}
+	if a.handleDetailNavKey(key) {
+		return a, nil
+	}
+	if cmd, ok := a.handleDetailActionKey(key, a.currentRepo()); ok {
+		return a, cmd
 	}
 	return a, nil
 }
 
-func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	// Check if we're in simple mode (small screen)
-	isSimpleMode := a.height < 10 || a.width < 69
-
-	// Global keys
+func (a *App) handleDiffGlobalKey(key string, isSimpleMode bool) (tea.Model, tea.Cmd, bool) {
 	switch key {
 	case "q":
 		a.screen = a.diffSourceScreen
-		return a, nil
+		return a, nil, true
 	case "tab":
-		// Toggle between panels (only in split mode)
 		if !isSimpleMode {
 			a.diffFocusLeft = !a.diffFocusLeft
 		}
-		return a, nil
+		return a, nil, true
 	case "right":
-		// Switch to right panel
 		a.diffFocusLeft = false
-		return a, nil
+		return a, nil, true
 	case "left":
-		// Switch to left panel
 		a.diffFocusLeft = true
-		return a, nil
+		return a, nil, true
 	case "ctrl+u":
 		a.diffViewport.LineUp(1)
-		return a, nil
+		return a, nil, true
 	case "ctrl+d":
 		a.diffViewport.LineDown(1)
-		return a, nil
+		return a, nil, true
 	}
+	return a, nil, false
+}
 
-	// In simple mode, always scroll the diff content
-	if isSimpleMode {
-		var cmd tea.Cmd
-		a.diffViewport, cmd = a.diffViewport.Update(msg)
-		return a, cmd
-	}
-
-	// Handle panel-specific keys (split mode)
-	if a.diffFocusLeft {
-		// Left panel: file list navigation
-		fileCount := len(a.diffTree.Files)
-		switch key {
-		case "up", "k":
-			if a.diffFileIdx > 0 {
-				a.diffFileIdx--
-				a.updateDiffContent()
-			}
-		case "down", "j":
-			if a.diffFileIdx < fileCount-1 {
-				a.diffFileIdx++
-				a.updateDiffContent()
-			}
+func (a *App) handleDiffLeftPanelKey(key string) {
+	fileCount := len(a.diffTree.Files)
+	switch key {
+	case "up", "k":
+		if a.diffFileIdx > 0 {
+			a.diffFileIdx--
+			a.updateDiffContent()
 		}
-	} else {
-		// Right panel: diff content scrolling
+	case "down", "j":
+		if a.diffFileIdx < fileCount-1 {
+			a.diffFileIdx++
+			a.updateDiffContent()
+		}
+	}
+}
+
+func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	isSimpleMode := a.height < 10 || a.width < 69
+
+	if model, cmd, handled := a.handleDiffGlobalKey(key, isSimpleMode); handled {
+		return model, cmd
+	}
+
+	if isSimpleMode || !a.diffFocusLeft {
 		var cmd tea.Cmd
 		a.diffViewport, cmd = a.diffViewport.Update(msg)
 		return a, cmd
 	}
 
+	a.handleDiffLeftPanelKey(key)
 	return a, nil
 }
 
@@ -840,7 +974,7 @@ func (a *App) View() string {
 	}
 }
 
-func (a *App) viewWorkspaces() string {
+func (a *App) buildStartTabsHeader() (string, string) {
 	header := titleStyle.Render("Repo Monitor - Workspaces")
 	tabLabels := []string{"workspace", "pr", "issues"}
 	tabStrs := make([]string, len(tabLabels))
@@ -851,53 +985,36 @@ func (a *App) viewWorkspaces() string {
 			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
 		}
 	}
-	tabLine := strings.Join(tabStrs, "  ")
+	return header, strings.Join(tabStrs, "  ")
+}
+
+func (a *App) buildStartHelpText() string {
+	if a.startTab == startTabWorkspace {
+		return HelpKeyStyle.Render("Tab/←→") + HelpDescStyle.Render(" 切换页签  ") +
+			HelpKeyStyle.Render("1/2/3") + HelpDescStyle.Render(" 快速切换  ") +
+			HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+			HelpKeyStyle.Render("Enter") + HelpDescStyle.Render(" 进入  ") +
+			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
+	}
 
 	helpText := HelpKeyStyle.Render("Tab/←→") + HelpDescStyle.Render(" 切换页签  ") +
 		HelpKeyStyle.Render("1/2/3") + HelpDescStyle.Render(" 快速切换  ") +
 		HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
-		HelpKeyStyle.Render("Enter") + HelpDescStyle.Render(" 进入  ") +
-		HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
-	if a.startTab == startTabPR || a.startTab == startTabIssue {
-		helpText = HelpKeyStyle.Render("Tab/←→") + HelpDescStyle.Render(" 切换页签  ") +
-			HelpKeyStyle.Render("1/2/3") + HelpDescStyle.Render(" 快速切换  ") +
-			HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
-			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ")
-		if a.startTab == startTabPR {
-			helpText += HelpKeyStyle.Render("d") + HelpDescStyle.Render(" diff  ")
-		}
-		helpText += HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开链接  ") +
-			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
-	}
-	help := helpText
-	columns := max(1, a.columns)
-
-	headerLines := []string{header, tabLine, ""}
-
+		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ")
 	if a.startTab == startTabPR {
-		bodyLines := a.renderStartPRLines(headerLines)
-		return composeWithFooter(a.height, bodyLines, help)
+		helpText += HelpKeyStyle.Render("d") + HelpDescStyle.Render(" diff  ")
 	}
-	if a.startTab == startTabIssue {
-		bodyLines := a.renderStartIssueLines(headerLines)
-		return composeWithFooter(a.height, bodyLines, help)
-	}
+	return helpText + HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开链接  ") +
+		HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 退出")
+}
 
-	if len(a.workspaces) == 0 {
-		bodyLines := append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
-		return composeWithFooter(a.height, bodyLines, help)
-	}
-
+func (a *App) buildWorkspaceCardsRows(columns int) []string {
 	rows := make([]string, 0)
 	for i := 0; i < len(a.workspaces); i += columns {
-		end := i + columns
-		if end > len(a.workspaces) {
-			end = len(a.workspaces)
-		}
+		end := min(i+columns, len(a.workspaces))
 		cards := make([]string, 0, end-i)
 		for j := i; j < end; j++ {
-			selected := (j == a.selectedWsIndex)
-			cards = append(cards, a.renderWorkspaceCard(a.workspaces[j], selected))
+			cards = append(cards, a.renderWorkspaceCard(a.workspaces[j], j == a.selectedWsIndex))
 		}
 		if len(cards) == 1 {
 			rows = append(rows, cards[0])
@@ -912,28 +1029,43 @@ func (a *App) viewWorkspaces() string {
 		}
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
+	return rows
+}
 
-	// Calculate how many rows we can display
-	rowHeight := 1
-	if len(rows) > 0 {
-		rowHeight = lipgloss.Height(rows[0])
-		if rowHeight < 1 {
-			rowHeight = 1
-		}
+func (a *App) calculateVisibleWorkspaceRows(rows []string, headerCount, columns int) []string {
+	if len(rows) == 0 {
+		return []string{}
 	}
-	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
+	rowHeight := max(1, lipgloss.Height(rows[0]))
+	availableHeight := a.height - headerCount - 2
+	displayRows := max(0, availableHeight/rowHeight)
+	if displayRows == 0 {
+		return []string{}
+	}
+	selectedRow := a.selectedWsIndex / columns
+	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+	return rows[startRow:endRow]
+}
 
-	displayRows := availableHeight / rowHeight
-	if displayRows < 0 {
-		displayRows = 0
+func (a *App) viewWorkspaces() string {
+	header, tabLine := a.buildStartTabsHeader()
+	help := a.buildStartHelpText()
+	headerLines := []string{header, tabLine, ""}
+
+	if a.startTab == startTabPR {
+		return composeWithFooter(a.height, a.renderStartPRLines(headerLines), help)
+	}
+	if a.startTab == startTabIssue {
+		return composeWithFooter(a.height, a.renderStartIssueLines(headerLines), help)
+	}
+	if len(a.workspaces) == 0 {
+		bodyLines := append(headerLines, "无工作区配置，请编辑 ~/.config/peekgit/config.json")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
-	visibleRows := []string{}
-	if displayRows > 0 {
-		selectedRow := a.selectedWsIndex / columns
-		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
-		visibleRows = rows[startRow:endRow]
-	}
+	columns := max(1, a.columns)
+	rows := a.buildWorkspaceCardsRows(columns)
+	visibleRows := a.calculateVisibleWorkspaceRows(rows, len(headerLines), columns)
 
 	bodyLines := append(headerLines, visibleRows...)
 	bodyLines = append(bodyLines, "")
@@ -974,17 +1106,15 @@ func (a *App) renderStartPRLines(headerLines []string) []string {
 		return append(lines, "当前账号下暂无 PR")
 	}
 
-	listHeight := a.height - len(lines) - 1
-	if listHeight < 0 {
-		listHeight = 0
-	}
+	return a.buildStartPRTableLines(lines)
+}
+
+func (a *App) buildStartPRTableLines(lines []string) []string {
+	listHeight := max(0, a.height-len(lines)-1)
 	idWidth := maxPRNumberWidthAccount(a.startPRs)
 	listLines := append([]string{}, lines...)
 	listLines = append(listLines, renderTableHeaderLine(prTableHeader(a.width, idWidth)))
-	itemHeight := listHeight - 1
-	if itemHeight < 0 {
-		itemHeight = 0
-	}
+	itemHeight := max(0, listHeight-1)
 	start, end := calculateScrollWindow(len(a.startPRs), a.startPRIdx, itemHeight)
 	for i := start; i < end; i++ {
 		pr := a.startPRs[i]
@@ -1019,17 +1149,15 @@ func (a *App) renderStartIssueLines(headerLines []string) []string {
 		return append(lines, "当前账号下暂无 Issues（我创建或指派给我）")
 	}
 
-	listHeight := a.height - len(lines) - 1
-	if listHeight < 0 {
-		listHeight = 0
-	}
+	return a.buildStartIssueTableLines(lines)
+}
+
+func (a *App) buildStartIssueTableLines(lines []string) []string {
+	listHeight := max(0, a.height-len(lines)-1)
 	idWidth := maxIssueNumberWidthAccount(a.startIssues)
 	listLines := append([]string{}, lines...)
 	listLines = append(listLines, renderTableHeaderLine(issueTableHeader(a.width, idWidth)))
-	itemHeight := listHeight - 1
-	if itemHeight < 0 {
-		itemHeight = 0
-	}
+	itemHeight := max(0, listHeight-1)
 	start, end := calculateScrollWindow(len(a.startIssues), a.startIssueIdx, itemHeight)
 	for i := start; i < end; i++ {
 		is := a.startIssues[i]
@@ -1053,6 +1181,13 @@ func (a *App) appendStartRefreshHint(lines []string) []string {
 	return lines
 }
 
+func (a *App) shouldLoadAccountRemote(tab startTab) bool {
+	if tab != startTabPR && tab != startTabIssue {
+		return false
+	}
+	return a.gh.Authenticated() && len(a.startPRs) == 0 && len(a.startIssues) == 0 && !a.startLoading
+}
+
 func (a *App) switchStartTab(next startTab) tea.Cmd {
 	if next < startTabWorkspace {
 		next = startTabIssue
@@ -1061,7 +1196,7 @@ func (a *App) switchStartTab(next startTab) tea.Cmd {
 		next = startTabWorkspace
 	}
 	a.startTab = next
-	if (next == startTabPR || next == startTabIssue) && a.gh.Authenticated() && len(a.startPRs) == 0 && len(a.startIssues) == 0 && !a.startLoading {
+	if a.shouldLoadAccountRemote(next) {
 		a.startLoading = true
 		return a.loadAccountRemoteCmd()
 	}
@@ -1105,15 +1240,13 @@ func (a *App) openWorkspaceTabCurrentURLCmd() tea.Cmd {
 		if url == "" {
 			return nil
 		}
-		cmd := browserOpenCmd(url)
-		_ = cmd.Run()
+		_ = openBrowser(url)
 		return nil
 	}
 }
 
-func (a *App) viewHome() string {
+func (a *App) buildHomeHeaderLines() []string {
 	wsName := ""
-	columns := max(1, a.columns)
 	if len(a.workspaces) > 0 && a.selectedWsIndex < len(a.workspaces) {
 		wsName = a.workspaces[a.selectedWsIndex]
 	}
@@ -1125,7 +1258,22 @@ func (a *App) viewHome() string {
 	if a.gh.Authenticated() {
 		tokenState = tokenOKStyle.Render("token: github ✓")
 	}
-	help := HelpKeyStyle.Render("↑↓←→/hjkl") + HelpDescStyle.Render(" 选择  ") +
+	lines := []string{header, tokenState}
+	if a.errText != "" {
+		lines = append(lines, ErrorBannerStyle.Render("⚠ "+a.errText))
+	}
+	if a.loading {
+		lines = append(lines, a.spinner.View()+" 刷新中...")
+	}
+	return lines
+}
+
+func (a *App) buildHomeHelpText() string {
+	if a.filterMode {
+		return searchInfoStyle.Render("过滤中: ") + a.filterText +
+			HelpDescStyle.Render("  (") + HelpKeyStyle.Render("Enter/ESC") + HelpDescStyle.Render(" 结束)")
+	}
+	return HelpKeyStyle.Render("↑↓←→/hjkl") + HelpDescStyle.Render(" 选择  ") +
 		HelpKeyStyle.Render("Space") + HelpDescStyle.Render(" 进入  ") +
 		HelpKeyStyle.Render("/") + HelpDescStyle.Render(" 过滤  ") +
 		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ") +
@@ -1133,39 +1281,15 @@ func (a *App) viewHome() string {
 		HelpKeyStyle.Render("F") + HelpDescStyle.Render(" pull全部  ") +
 		HelpKeyStyle.Render("g") + HelpDescStyle.Render(" lazygit  ") +
 		HelpKeyStyle.Render("q/ESC") + HelpDescStyle.Render(" 返回")
-	if a.filterMode {
-		help = searchInfoStyle.Render("过滤中: ") + a.filterText +
-			HelpDescStyle.Render("  (") + HelpKeyStyle.Render("Enter/ESC") + HelpDescStyle.Render(" 结束)")
-	}
+}
 
-	headerLines := []string{header, tokenState}
-	if a.errText != "" {
-		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ "+a.errText))
-	}
-	repos := a.filteredRepos()
-	if a.loading {
-		headerLines = append(headerLines, a.spinner.View()+" 刷新中...")
-	}
-	if a.loading && len(repos) == 0 {
-		bodyLines := append(headerLines, a.spinner.View()+" 刷新中...", "")
-		return composeWithFooter(a.height, bodyLines, help)
-	}
-
-	if len(repos) == 0 {
-		bodyLines := append(headerLines, "没有仓库（可调整过滤条件）")
-		return composeWithFooter(a.height, bodyLines, help)
-	}
-
+func (a *App) buildRepoCardsRows(repos []model.RepoStatus, columns int) []string {
 	rows := make([]string, 0)
 	for i := 0; i < len(repos); i += columns {
-		end := i + columns
-		if end > len(repos) {
-			end = len(repos)
-		}
+		end := min(i+columns, len(repos))
 		cards := make([]string, 0, end-i)
 		for j := i; j < end; j++ {
-			selected := (j == a.selectedIndex)
-			cards = append(cards, a.renderCard(repos[j], selected))
+			cards = append(cards, a.renderCard(repos[j], j == a.selectedIndex))
 		}
 		if len(cards) == 1 {
 			rows = append(rows, cards[0])
@@ -1180,28 +1304,41 @@ func (a *App) viewHome() string {
 		}
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, segments...))
 	}
+	return rows
+}
 
-	rowHeight := 1
-	if len(rows) > 0 {
-		rowHeight = lipgloss.Height(rows[0])
-		if rowHeight < 1 {
-			rowHeight = 1
-		}
+func (a *App) calculateVisibleRepoRows(rows []string, headerCount, columns int) []string {
+	if len(rows) == 0 {
+		return []string{}
 	}
-	availableHeight := a.height - len(headerLines) - 2 // -2 for footer help text and spacing
+	rowHeight := max(1, lipgloss.Height(rows[0]))
+	availableHeight := a.height - headerCount - 2
+	displayRows := max(0, availableHeight/rowHeight)
+	if displayRows == 0 {
+		return []string{}
+	}
+	selectedRow := a.selectedIndex / columns
+	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+	return rows[startRow:endRow]
+}
 
-	displayRows := availableHeight / rowHeight
-	if displayRows < 0 {
-		displayRows = 0
+func (a *App) viewHome() string {
+	columns := max(1, a.columns)
+	help := a.buildHomeHelpText()
+	headerLines := a.buildHomeHeaderLines()
+	repos := a.filteredRepos()
+
+	if a.loading && len(repos) == 0 {
+		bodyLines := append(headerLines, a.spinner.View()+" 刷新中...", "")
+		return composeWithFooter(a.height, bodyLines, help)
+	}
+	if len(repos) == 0 {
+		bodyLines := append(headerLines, "没有仓库（可调整过滤条件）")
+		return composeWithFooter(a.height, bodyLines, help)
 	}
 
-	visibleRows := []string{}
-	if displayRows > 0 {
-		selectedRow := a.selectedIndex / columns
-		startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
-		visibleRows = rows[startRow:endRow]
-	}
-
+	rows := a.buildRepoCardsRows(repos, columns)
+	visibleRows := a.calculateVisibleRepoRows(rows, len(headerLines), columns)
 	bodyLines := append(headerLines, visibleRows...)
 	return composeWithFooter(a.height, bodyLines, help)
 }
@@ -1239,8 +1376,7 @@ func (a *App) renderCard(repo model.RepoStatus, selected bool) string {
 	return s.Render(line1 + "\n" + line2 + "\n" + line3)
 }
 
-func (a *App) viewDetail() string {
-	repo := a.currentRepo()
+func (a *App) buildDetailHeaderLines(repo model.RepoStatus) []string {
 	header := titleStyle.Render(repo.Name)
 	if a.loading {
 		header += "  " + a.spinner.View() + " 刷新中..."
@@ -1259,79 +1395,81 @@ func (a *App) viewDetail() string {
 			tabStrs[i] = tabInactiveStyle.Render(" " + label + " ")
 		}
 	}
-	headerLines := []string{header, strings.Join(tabStrs, "  ")}
+	lines := []string{header, strings.Join(tabStrs, "  ")}
 	if a.errText != "" {
-		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ "+a.errText))
+		lines = append(lines, ErrorBannerStyle.Render("⚠ "+a.errText))
 	}
 	if a.remoteErr != "" {
-		headerLines = append(headerLines, ErrorBannerStyle.Render("⚠ 远端: "+a.remoteErr))
+		lines = append(lines, ErrorBannerStyle.Render("⚠ 远端: "+a.remoteErr))
 	}
+	return lines
+}
 
-	var subHelp string
+func (a *App) buildDetailHelpText() string {
 	refreshHint := HelpKeyStyle.Render("r") + HelpDescStyle.Render(" 刷新  ")
-	switch a.detailTab {
-	case tabPR:
-		subHelp = HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+	if a.detailTab == tabPR {
+		return HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
 			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" diff  ") +
 			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开  ") +
 			refreshHint +
 			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 返回")
-	case tabIssue:
-		subHelp = HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
-			HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开  ") +
-			refreshHint +
-			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 返回")
 	}
+	return HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render(" 选择  ") +
+		HelpKeyStyle.Render("o") + HelpDescStyle.Render(" 打开  ") +
+		refreshHint +
+		HelpKeyStyle.Render("q") + HelpDescStyle.Render(" 返回")
+}
 
-	// Calculate available height for the list
-	// -1 for subHelp at bottom
-	listHeight := a.height - len(headerLines) - 1
-	if listHeight < 0 {
-		listHeight = 0
+func (a *App) buildDetailPRListLines(listHeight int) []string {
+	if len(a.prList) == 0 {
+		return []string{"暂无 PR"}
 	}
+	idWidth := maxPRNumberWidthDetail(a.prList)
+	listLines := []string{renderTableHeaderLine(prTableHeader(a.width, idWidth))}
+	itemHeight := max(0, listHeight-1)
+	start, end := calculateScrollWindow(len(a.prList), a.detailPRIdx, itemHeight)
+	for i := start; i < end; i++ {
+		pr := a.prList[i]
+		line := prTableRow(
+			a.width,
+			idWidth,
+			pr.Number,
+			pr.Title+" ["+emptyDash(pr.HeadBranch)+" -> "+emptyDash(pr.BaseBranch)+"]",
+			emptyDash(pr.Author),
+			pr.UpdatedAt,
+		)
+		listLines = append(listLines, renderSelectableLine(line, i == a.detailPRIdx))
+	}
+	return listLines
+}
+
+func (a *App) buildDetailIssueListLines(listHeight int) []string {
+	if len(a.issues) == 0 {
+		return []string{"暂无 Issues"}
+	}
+	idWidth := maxIssueNumberWidthDetail(a.issues)
+	listLines := []string{renderTableHeaderLine(issueTableHeader(a.width, idWidth))}
+	itemHeight := max(0, listHeight-1)
+	start, end := calculateScrollWindow(len(a.issues), a.detailISIdx, itemHeight)
+	for i := start; i < end; i++ {
+		is := a.issues[i]
+		line := issueTableRow(a.width, idWidth, is.Number, is.Title, is.Labels, is.UpdatedAt)
+		listLines = append(listLines, renderSelectableLine(line, i == a.detailISIdx))
+	}
+	return listLines
+}
+
+func (a *App) viewDetail() string {
+	repo := a.currentRepo()
+	headerLines := a.buildDetailHeaderLines(repo)
+	subHelp := a.buildDetailHelpText()
+	listHeight := max(0, a.height-len(headerLines)-1)
 
 	var listLines []string
 	if a.detailTab == tabPR {
-		if len(a.prList) == 0 {
-			listLines = append(listLines, "暂无 PR")
-		} else {
-			idWidth := maxPRNumberWidthDetail(a.prList)
-			listLines = append(listLines, renderTableHeaderLine(prTableHeader(a.width, idWidth)))
-			itemHeight := listHeight - 1
-			if itemHeight < 0 {
-				itemHeight = 0
-			}
-			start, end := calculateScrollWindow(len(a.prList), a.detailPRIdx, itemHeight)
-			for i := start; i < end; i++ {
-				pr := a.prList[i]
-				line := prTableRow(
-					a.width,
-					idWidth,
-					pr.Number,
-					pr.Title+" ["+emptyDash(pr.HeadBranch)+" -> "+emptyDash(pr.BaseBranch)+"]",
-					emptyDash(pr.Author),
-					pr.UpdatedAt,
-				)
-				listLines = append(listLines, renderSelectableLine(line, i == a.detailPRIdx))
-			}
-		}
+		listLines = a.buildDetailPRListLines(listHeight)
 	} else {
-		if len(a.issues) == 0 {
-			listLines = append(listLines, "暂无 Issues")
-		} else {
-			idWidth := maxIssueNumberWidthDetail(a.issues)
-			listLines = append(listLines, renderTableHeaderLine(issueTableHeader(a.width, idWidth)))
-			itemHeight := listHeight - 1
-			if itemHeight < 0 {
-				itemHeight = 0
-			}
-			start, end := calculateScrollWindow(len(a.issues), a.detailISIdx, itemHeight)
-			for i := start; i < end; i++ {
-				is := a.issues[i]
-				line := issueTableRow(a.width, idWidth, is.Number, is.Title, is.Labels, is.UpdatedAt)
-				listLines = append(listLines, renderSelectableLine(line, i == a.detailISIdx))
-			}
-		}
+		listLines = a.buildDetailIssueListLines(listHeight)
 	}
 
 	res := append(headerLines, listLines...)
@@ -1352,79 +1490,49 @@ func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
 	return start, start + height
 }
 
-func (a *App) viewDiff() string {
-	if a.diffLoading {
-		return a.spinner.View() + " 加载 diff 中..."
-	}
-
-	// Handle tiny height - just show help
-	if a.height <= 1 {
-		return HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
-	}
-
-	// For small screens, use single panel layout (no file tree)
-	// Minimum width needed: leftWidth(25) + rightWidth(40) + borders/gap(4) = 69
-	if a.height < 10 || a.width < 69 {
-		return a.viewDiffSimple()
-	}
-
-	// Calculate panel dimensions (3:7 ratio)
-	leftWidth := a.width * 3 / 10
-	if leftWidth < 25 {
-		leftWidth = 25
-	}
-	rightWidth := a.width - leftWidth - 4 // -4 for borders and gap
+func (a *App) calculateDiffPanelDimensions() (int, int, int) {
+	leftWidth := max(25, a.width*3/10)
+	rightWidth := a.width - leftWidth - 4
 	if rightWidth < 40 {
 		rightWidth = 40
-		leftWidth = a.width - rightWidth - 4
-		if leftWidth < 25 {
-			leftWidth = 25
-		}
+		leftWidth = max(25, a.width-rightWidth-4)
 	}
+	contentHeight := max(3, a.height-4)
+	return leftWidth, rightWidth, contentHeight
+}
 
-	// Calculate content height (account for header, borders, help)
-	contentHeight := a.height - 4 // header(1) + panel borders(2) + help(1)
-	if contentHeight < 3 {
-		contentHeight = 3
-	}
-
-	// Update viewport dimensions
-	a.diffViewport.Width = max(20, rightWidth-2)
-	a.diffViewport.Height = contentHeight
-
-	// Get current file info for right panel title
-	currentFile := ""
+func (a *App) currentDiffFilePath() string {
 	if a.diffTree != nil && a.diffFileIdx >= 0 && a.diffFileIdx < len(a.diffTree.Files) {
-		currentFile = a.diffTree.Files[a.diffFileIdx].Path
+		return a.diffTree.Files[a.diffFileIdx].Path
 	}
+	return ""
+}
 
-	// Build left panel (file tree)
-	leftTitle := dirStyle.Render(" Files ")
-	leftContent := a.renderFileTree(leftWidth-4, contentHeight-1) // -4 for borders(2) + padding(2), -1 for title
-	leftPanel := getBorderStyle(a.diffFocusLeft).
-		Width(leftWidth).
-		Height(contentHeight).
-		Render(leftTitle + "\n" + leftContent)
-
-	// Build right panel (diff content)
+func (a *App) renderDiffRightPanel(rightWidth, contentHeight int, currentFile string) string {
 	rightTitle := " Diff "
 	if currentFile != "" {
-		// Truncate filename if too long
 		displayName := currentFile
 		if len(displayName) > rightWidth-10 {
 			displayName = "..." + displayName[len(displayName)-(rightWidth-13):]
 		}
 		rightTitle = diffMetaStyle.Render(" " + displayName + " ")
 	}
-	rightPanel := getBorderStyle(!a.diffFocusLeft).
+	return getBorderStyle(!a.diffFocusLeft).
 		Width(rightWidth).
 		Height(contentHeight).
 		Render(rightTitle + "\n" + a.diffViewport.View())
+}
 
-	// Combine panels with gap
-	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+func (a *App) renderDiffLeftPanel(leftWidth, contentHeight int) string {
+	leftTitle := dirStyle.Render(" Files ")
+	leftContent := a.renderFileTree(leftWidth-4, contentHeight-1)
+	return getBorderStyle(a.diffFocusLeft).
+		Width(leftWidth).
+		Height(contentHeight).
+		Render(leftTitle + "\n" + leftContent)
+}
 
-	// Build help text with panel indicator
+func (a *App) buildDiffHelpText(fileCount int) string {
 	panelHint := HelpDescStyle.Render("[")
 	if a.diffFocusLeft {
 		panelHint += HelpKeyStyle.Render("Files")
@@ -1432,19 +1540,40 @@ func (a *App) viewDiff() string {
 		panelHint += HelpKeyStyle.Render("Diff")
 	}
 	panelHint += HelpDescStyle.Render("]")
-	fileCount := 0
-	if a.diffTree != nil {
-		fileCount = len(a.diffTree.Files)
-	}
-	help := panelHint + HelpDescStyle.Render("  ") +
+	return panelHint + HelpDescStyle.Render("  ") +
 		HelpKeyStyle.Render("↑↓") + HelpDescStyle.Render("选择  ") +
 		HelpKeyStyle.Render("←→") + HelpDescStyle.Render("切换面板  ") +
 		HelpKeyStyle.Render("ctrl+u/d") + HelpDescStyle.Render("逐行滚动  ") +
 		HelpDescStyle.Render("[") + HelpKeyStyle.Render("q") + HelpDescStyle.Render("]退出  ") +
 		cursorStyle.Render("●") + HelpDescStyle.Render(fmt.Sprintf(" %d files", fileCount))
-	lines := []string{"", panels, help}
+}
 
-	return strings.Join(lines, "\n")
+func (a *App) viewDiff() string {
+	if a.diffLoading {
+		return a.spinner.View() + " 加载 diff 中..."
+	}
+	if a.height <= 1 {
+		return HelpKeyStyle.Render("[q]") + HelpDescStyle.Render(" 返回")
+	}
+	if a.height < 10 || a.width < 69 {
+		return a.viewDiffSimple()
+	}
+
+	leftWidth, rightWidth, contentHeight := a.calculateDiffPanelDimensions()
+	a.diffViewport.Width = max(20, rightWidth-2)
+	a.diffViewport.Height = contentHeight
+
+	currentFile := a.currentDiffFilePath()
+	leftPanel := a.renderDiffLeftPanel(leftWidth, contentHeight)
+	rightPanel := a.renderDiffRightPanel(rightWidth, contentHeight, currentFile)
+	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+
+	fileCount := 0
+	if a.diffTree != nil {
+		fileCount = len(a.diffTree.Files)
+	}
+	help := a.buildDiffHelpText(fileCount)
+	return strings.Join([]string{"", panels, help}, "\n")
 }
 
 func maxIssueNumberWidthAccount(items []model.AccountIssueItem) int {
@@ -1697,78 +1826,76 @@ func (a *App) viewDiffSimple() string {
 }
 
 // renderFileTree renders the file tree for the left panel with tree structure
-func (a *App) renderFileTree(width, height int) string {
-	if a.diffTree == nil || a.diffTree.Tree == nil || len(a.diffTree.Files) == 0 {
-		return labelDimStyle.Render(" 无文件变更")
-	}
+func (a *App) hasDiffTreeFiles() bool {
+	return a.diffTree != nil && a.diffTree.Tree != nil && len(a.diffTree.Files) > 0
+}
 
-	// Build tree lines with file index tracking
-	var treeLines []treeLine
-	fileCounter := 0
-	a.buildTreeLines(a.diffTree.Tree, 0, &treeLines, &fileCounter)
-	totalLines := len(treeLines)
-
-	// Find the actual line index of the selected file in tree
-	selectedLineIdx := 0
+func findSelectedFileLine(treeLines []treeLine, diffFileIdx int) int {
 	for i, tl := range treeLines {
-		if !tl.isDir && tl.fileIndex == a.diffFileIdx {
-			selectedLineIdx = i
-			break
+		if !tl.isDir && tl.fileIndex == diffFileIdx {
+			return i
 		}
 	}
+	return 0
+}
 
-	// Calculate vertical scroll based on selected line position
-	// Scroll when selection reaches 1/3 of visible height from top
-	if totalLines <= height {
-		a.diffLeftOffset = 0
-	} else {
-		// Calculate threshold at 1/3 of height
-		threshold := height / 3
-		if threshold < 1 {
-			threshold = 1
-		}
-
-		// Scroll up when selection moves above threshold from top
-		if selectedLineIdx < a.diffLeftOffset+threshold {
-			a.diffLeftOffset = selectedLineIdx - threshold
-			if a.diffLeftOffset < 0 {
-				a.diffLeftOffset = 0
-			}
-		}
-
-		// Scroll down when selection moves below threshold from bottom
-		if selectedLineIdx >= a.diffLeftOffset+height-threshold {
-			a.diffLeftOffset = selectedLineIdx - height + threshold + 1
-		}
-
-		// Ensure we don't scroll past the end
-		if a.diffLeftOffset+height > totalLines {
-			a.diffLeftOffset = totalLines - height
-		}
-		if a.diffLeftOffset < 0 {
-			a.diffLeftOffset = 0
-		}
-	}
-
-	// Get visible range
-	end := a.diffLeftOffset + height
-	if end > totalLines {
-		end = totalLines
+func (a *App) renderVisibleTreeLines(treeLines []treeLine, offset, height, width int) string {
+	end := offset + height
+	if end > len(treeLines) {
+		end = len(treeLines)
 	}
 
 	var lines []string
-	for i := a.diffLeftOffset; i < end; i++ {
-		tl := treeLines[i]
-		line := a.renderTreeLine(tl, width)
-		lines = append(lines, line)
+	for i := offset; i < end; i++ {
+		lines = append(lines, a.renderTreeLine(treeLines[i], width))
 	}
 
-	// Pad with empty lines if needed
 	for len(lines) < height {
 		lines = append(lines, strings.Repeat(" ", width))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderFileTree renders the file tree for the left panel with tree structure
+func (a *App) renderFileTree(width, height int) string {
+	if !a.hasDiffTreeFiles() {
+		return labelDimStyle.Render(" 无文件变更")
+	}
+
+	var treeLines []treeLine
+	fileCounter := 0
+	a.buildTreeLines(a.diffTree.Tree, 0, &treeLines, &fileCounter)
+
+	selectedLineIdx := findSelectedFileLine(treeLines, a.diffFileIdx)
+	a.diffLeftOffset = calculateFileTreeOffset(a.diffLeftOffset, len(treeLines), height, selectedLineIdx)
+
+	return a.renderVisibleTreeLines(treeLines, a.diffLeftOffset, height, width)
+}
+
+func calculateFileTreeOffset(currentOffset, totalLines, height, selectedLineIdx int) int {
+	if totalLines <= height {
+		return 0
+	}
+	threshold := height / 3
+	if threshold < 1 {
+		threshold = 1
+	}
+
+	offset := currentOffset
+	if selectedLineIdx < offset+threshold {
+		offset = selectedLineIdx - threshold
+	} else if selectedLineIdx >= offset+height-threshold {
+		offset = selectedLineIdx - height + threshold + 1
+	}
+
+	if offset+height > totalLines {
+		offset = totalLines - height
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return offset
 }
 
 // treeLine represents a line in the file tree
@@ -1810,44 +1937,33 @@ func (a *App) buildTreeLines(node *DiffNode, indent int, lines *[]treeLine, file
 
 // renderTreeLine renders a single tree line
 func (a *App) renderTreeLine(tl treeLine, width int) string {
-	indentStr := strings.Repeat("  ", tl.indent)
-
 	if tl.isDir {
-		plainText := indentStr + "📂 " + tl.name + "/"
-		if lipgloss.Width(plainText) > width {
-			maxNameLen := width - len(indentStr) - 4
-			if maxNameLen > 0 && len(tl.name) > maxNameLen {
-				plainText = indentStr + "📂 " + tl.name[:maxNameLen-1] + "…/"
-			}
+		return renderDirTreeLine(strings.Repeat("  ", tl.indent), tl.name, width)
+	}
+	return renderFileDiffTreeLine(tl, width, tl.fileIndex == a.diffFileIdx, a.diffFocusLeft)
+}
+
+func renderDirTreeLine(indentStr, name string, width int) string {
+	plainText := indentStr + "📂 " + name + "/"
+	if lipgloss.Width(plainText) > width {
+		maxNameLen := width - len(indentStr) - 4
+		if maxNameLen > 0 && len(name) > maxNameLen {
+			plainText = indentStr + "📂 " + name[:maxNameLen-1] + "…/"
 		}
-		return TreeDirStyle.Render(plainText)
 	}
+	return TreeDirStyle.Render(plainText)
+}
 
-	isSelected := (tl.fileIndex == a.diffFileIdx)
-	f := tl.file
+func renderFileDiffTreeLine(tl treeLine, width int, isSelected, focusLeft bool) string {
+	indentStr := strings.Repeat("  ", tl.indent)
+	statusIcon := getFileStatusIcon(tl.file)
+	statsStr := getFileStatsStr(tl.file)
 
-	var statusIcon string
-	switch {
-	case f.IsNew:
-		statusIcon = FileStatusNewStyle.Render("+")
-	case f.IsDelete:
-		statusIcon = FileStatusDelStyle.Render("-")
-	default:
-		statusIcon = FileStatusModStyle.Render("~")
-	}
-
-	statsStr := ""
-	if f.AddLines > 0 || f.DelLines > 0 {
-		statsStr = fmt.Sprintf(" (+%d/-%d)", f.AddLines, f.DelLines)
-	}
-
-	// Build base line
 	line := indentStr + " " + statusIcon + " " + tl.name
 	if statsStr != "" {
 		line += labelDimStyle.Render(statsStr)
 	}
 
-	// Apply truncation if needed
 	if lipgloss.Width(line) > width {
 		availableForName := width - lipgloss.Width(indentStr+" ") - lipgloss.Width(statsStr) - lipgloss.Width("+ ")
 		if availableForName > 3 && len(tl.name) > availableForName {
@@ -1859,12 +1975,32 @@ func (a *App) renderTreeLine(tl treeLine, width int) string {
 		}
 	}
 
-	// Apply selection style
 	if isSelected {
-		line = getSelectionStyle(a.diffFocusLeft).Render(line)
+		line = getSelectionStyle(focusLeft).Render(line)
 	}
 
 	return line
+}
+
+func getFileStatusIcon(f *FileDiff) string {
+	if f == nil {
+		return FileStatusModStyle.Render("~")
+	}
+	switch {
+	case f.IsNew:
+		return FileStatusNewStyle.Render("+")
+	case f.IsDelete:
+		return FileStatusDelStyle.Render("-")
+	default:
+		return FileStatusModStyle.Render("~")
+	}
+}
+
+func getFileStatsStr(f *FileDiff) string {
+	if f != nil && (f.AddLines > 0 || f.DelLines > 0) {
+		return fmt.Sprintf(" (+%d/-%d)", f.AddLines, f.DelLines)
+	}
+	return ""
 }
 
 func composeWithFooter(height int, bodyLines []string, footer string) string {
@@ -1927,11 +2063,15 @@ func (a *App) refreshAllCmd() tea.Cmd {
 	}
 }
 
-func (a *App) scanWorkspaceRepos(paths []string) ([]workspace.RepoDir, error) {
-	if a.cfg.WorkspaceMode {
-		return workspace.ScanReposWithDepth(a.cfg.WorkspaceRoot, a.cfg.WorkspaceDepth)
+var scanWorkspaceReposFn = func(cfg config.Config, paths []string) ([]workspace.RepoDir, error) {
+	if cfg.WorkspaceMode {
+		return workspace.ScanReposWithDepth(cfg.WorkspaceRoot, cfg.WorkspaceDepth)
 	}
 	return workspace.ScanRepos(paths)
+}
+
+func (a *App) scanWorkspaceRepos(paths []string) ([]workspace.RepoDir, error) {
+	return scanWorkspaceReposFn(a.cfg, paths)
 }
 
 func (a *App) refreshRepoCmd(seq int, name string, path string) tea.Cmd {
@@ -2099,17 +2239,24 @@ func (a *App) openCurrentURLCmd() tea.Cmd {
 		if url == "" {
 			return nil
 		}
-		cmd := browserOpenCmd(url)
-		_ = cmd.Run()
+		_ = openBrowser(url)
 		return nil
 	}
 }
 
+var openBrowser = func(url string) error {
+	return browserOpenCmd(url).Run()
+}
+
 func browserOpenCmd(url string) *exec.Cmd {
-	if runtime.GOOS == "darwin" {
+	return browserOpenCmdForOS(runtime.GOOS, url)
+}
+
+func browserOpenCmdForOS(goos, url string) *exec.Cmd {
+	if goos == "darwin" {
 		return exec.Command("open", url)
 	}
-	if runtime.GOOS == "linux" {
+	if goos == "linux" {
 		return exec.Command("xdg-open", url)
 	}
 	return exec.Command("cmd", "/c", "start", url)
@@ -2255,11 +2402,7 @@ func sortedWorkspaceKeys(ws config.WorkspaceMap) []string {
 func calcWorkspaceCounts(ws config.WorkspaceMap, keys []string) map[string]int {
 	counts := make(map[string]int, len(keys))
 	for _, k := range keys {
-		repos, err := workspace.ScanRepos(ws[k])
-		if err != nil {
-			counts[k] = 0
-			continue
-		}
+		repos, _ := workspace.ScanRepos(ws[k])
 		counts[k] = len(repos)
 	}
 	return counts
@@ -2367,19 +2510,24 @@ func (a *App) pullAllCmd() tea.Cmd {
 	}
 }
 
+var lookPath = exec.LookPath
+var execCommand = exec.Command
+
 func (a *App) runLazygitCmd(repoPath string) tea.Cmd {
 	// 检查 lazygit 是否可用
-	if _, err := exec.LookPath("lazygit"); err != nil {
+	if _, err := lookPath("lazygit"); err != nil {
 		return func() tea.Msg {
 			return lazygitDoneMsg{err: fmt.Errorf("lazygit 未安装，请先安装 lazygit: https://github.com/jesseduffield/lazygit")}
 		}
 	}
 
-	c := exec.Command("lazygit")
+	c := execCommand("lazygit")
 	c.Dir = repoPath
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return lazygitDoneMsg{err: err}
-	})
+	return tea.ExecProcess(c, lazygitDoneFunc)
+}
+
+func lazygitDoneFunc(err error) tea.Msg {
+	return lazygitDoneMsg{err: err}
 }
 
 type lazygitDoneMsg struct {

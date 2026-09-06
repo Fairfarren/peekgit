@@ -18,8 +18,9 @@ var (
 	date    = "unknown"
 )
 
-var runProgram = func(model tea.Model) error {
-	p := tea.NewProgram(model, tea.WithAltScreen())
+var runProgram = func(model tea.Model, opts ...tea.ProgramOption) error {
+	allOpts := append([]tea.ProgramOption{tea.WithAltScreen()}, opts...)
+	p := tea.NewProgram(model, allOpts...)
 	_, err := p.Run()
 	return err
 }

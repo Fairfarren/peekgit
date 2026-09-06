@@ -59,3 +59,21 @@ func TestComputeLayoutEdgeCases(t *testing.T) {
 		t.Errorf("got %d, want 1", got)
 	}
 }
+
+func TestClamp(t *testing.T) {
+	if got := clamp(-5, 0, 10); got != 0 {
+		t.Errorf("clamp(-5, 0, 10) = %d, want 0", got)
+	}
+	if got := clamp(15, 0, 10); got != 10 {
+		t.Errorf("clamp(15, 0, 10) = %d, want 10", got)
+	}
+	if got := clamp(5, 0, 10); got != 5 {
+		t.Errorf("clamp(5, 0, 10) = %d, want 5", got)
+	}
+	if got := clamp(0, 0, 10); got != 0 {
+		t.Errorf("clamp(0, 0, 10) = %d, want 0", got)
+	}
+	if got := clamp(10, 0, 10); got != 10 {
+		t.Errorf("clamp(10, 0, 10) = %d, want 10", got)
+	}
+}

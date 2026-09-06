@@ -50,8 +50,15 @@ func New(ctx context.Context, noGitHub bool) *Client {
 	}
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	tc := oauth2.NewClient(ctx, ts)
+	return NewWithClient(gh.NewClient(tc))
+}
+
+func NewWithClient(ghc *gh.Client) *Client {
+	if ghc == nil {
+		return &Client{auth: false}
+	}
 	return &Client{
-		client:       gh.NewClient(tc),
+		client:       ghc,
 		auth:         true,
 		prCache:      cache.NewTTLCache[[]model.PullRequestItem](60 * time.Second),
 		issueCache:   cache.NewTTLCache[[]model.IssueItem](60 * time.Second),

@@ -43,6 +43,18 @@ func TestResolveTokenFromGh(t *testing.T) {
 	}
 }
 
+
+func TestNewWithClient(t *testing.T) {
+	cNil := NewWithClient(nil)
+	if cNil.Authenticated() {
+		t.Fatalf("expected nil client to be unauthenticated")
+	}
+	cValid := NewWithClient(gh.NewClient(nil))
+	if !cValid.Authenticated() {
+		t.Fatalf("expected client to be authenticated")
+	}
+}
+
 func TestUnauthenticatedGuards(t *testing.T) {
 	c := &Client{}
 	if _, err := c.ListPRs(context.Background(), "a", "b"); err != ErrUnauthenticated {
@@ -370,5 +382,284 @@ func TestListMyIssuesErrors(t *testing.T) {
 	_, err := c.ListMyIssues(context.Background())
 	if err != ErrUnauthenticated {
 		t.Fatalf("expected ErrUnauthenticated, got %v", err)
+	}
+}
+
+func TestNewWithToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "my-test-token")
+	c := New(context.Background(), false)
+	if c == nil || !c.Authenticated() {
+		t.Fatalf("expected authenticated client")
+	}
+
+	_ = os.Unsetenv("GITHUB_TOKEN")
+	orig := runGhAuthToken
+	runGhAuthToken = func(context.Context) (string, error) {
+		return "", errors.New("err")
+	}
+	defer func() { runGhAuthToken = orig }()
+	c2 := New(context.Background(), false)
+	if c2 == nil || c2.Authenticated() {
+		t.Fatalf("expected unauthenticated client when no token")
+	}
+}
+
+func TestListPRFilesSuccess(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/1/files", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"filename":"a.txt","status":"modified","additions":2,"deletions":1}]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(srv.URL+"/", srv.URL+"/")
+	c := &Client{client: ghc, auth: true}
+	files, err := c.ListPRFiles(context.Background(), "o", "r", 1)
+	if err != nil || len(files) != 1 || files[0].GetFilename() != "a.txt" {
+		t.Fatalf("unexpected files=%v, err=%v", files, err)
+	}
+}
+
+func TestListPRsAndIssuesAndDiffErrors(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/repos/err/err/pulls", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v3/repos/err/err/issues", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v3/repos/err/err/pulls/1", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(srv.URL+"/", srv.URL+"/")
+	c := &Client{client: ghc, auth: true, prCache: cache.NewTTLCache[[]model.PullRequestItem](time.Minute), issueCache: cache.NewTTLCache[[]model.IssueItem](time.Minute), diffCache: cache.NewTTLCache[string](time.Minute)}
+
+	if _, err := c.ListPRs(context.Background(), "err", "err"); err == nil {
+		t.Fatal("expected error from ListPRs")
+	}
+	if _, err := c.ListIssues(context.Background(), "err", "err"); err == nil {
+		t.Fatal("expected error from ListIssues")
+	}
+	if _, err := c.PullRequestDiff(context.Background(), "err", "err", 1); err == nil {
+		t.Fatal("expected error from PullRequestDiff")
+	}
+}
+
+func TestMyPRsAndIssuesCacheAndErrors(t *testing.T) {
+	// Viewer error
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/user", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(srv.URL+"/", srv.URL+"/")
+	c := &Client{
+		client:       ghc,
+		auth:         true,
+		viewerCache:  cache.NewTTLCache[string](time.Minute),
+		myPRCache:    cache.NewTTLCache[[]model.AccountPullRequestItem](time.Minute),
+		myIssueCache: cache.NewTTLCache[[]model.AccountIssueItem](time.Minute),
+	}
+
+	if _, err := c.ListMyPullRequests(context.Background()); err == nil {
+		t.Fatal("expected error when viewer fails")
+	}
+	if _, err := c.ListMyIssues(context.Background()); err == nil {
+		t.Fatal("expected error when viewer fails")
+	}
+
+	// Cache hit
+	c.viewerCache.Set("viewer", "cached-user", time.Now())
+	c.myPRCache.Set("my-prs:cached-user", []model.AccountPullRequestItem{{Number: 100}}, time.Now())
+	c.myIssueCache.Set("my-issues:cached-user", []model.AccountIssueItem{{Number: 200}}, time.Now())
+
+	prs, err := c.ListMyPullRequests(context.Background())
+	if err != nil || len(prs) != 1 || prs[0].Number != 100 {
+		t.Fatalf("expected cached prs, got %v, %v", prs, err)
+	}
+	issues, err := c.ListMyIssues(context.Background())
+	if err != nil || len(issues) != 1 || issues[0].Number != 200 {
+		t.Fatalf("expected cached issues, got %v, %v", issues, err)
+	}
+
+	// Search errors
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc("/api/v3/user", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"login":"user2"}`))
+	})
+	mux2.HandleFunc("/api/v3/search/issues", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv2 := httptest.NewServer(mux2)
+	defer srv2.Close()
+
+	ghc2, _ := gh.NewClient(nil).WithEnterpriseURLs(srv2.URL+"/", srv2.URL+"/")
+	c2 := &Client{
+		client:       ghc2,
+		auth:         true,
+		viewerCache:  cache.NewTTLCache[string](time.Minute),
+		myPRCache:    cache.NewTTLCache[[]model.AccountPullRequestItem](time.Minute),
+		myIssueCache: cache.NewTTLCache[[]model.AccountIssueItem](time.Minute),
+	}
+	if _, err := c2.ListMyPullRequests(context.Background()); err == nil {
+		t.Fatal("expected search error")
+	}
+	if _, err := c2.ListMyIssues(context.Background()); err == nil {
+		t.Fatal("expected search error")
+	}
+}
+
+func TestViewerLoginEmptyAndCIStateEdgeCases(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/user", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"login":""}`))
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/1", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"number":1,"head":{"sha":""}}`))
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/2", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"number":2,"head":{"sha":"sha2"}}`))
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/commits/sha2/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/3", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"number":3,"head":{"sha":"sha3"}}`))
+	})
+	mux.HandleFunc("/api/v3/repos/o/r/commits/sha3/status", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"state":""}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(srv.URL+"/", srv.URL+"/")
+	c := &Client{client: ghc, auth: true, viewerCache: cache.NewTTLCache[string](time.Minute)}
+
+	_, err := c.currentViewerLogin(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "empty viewer login") {
+		t.Fatalf("expected empty viewer login error, got %v", err)
+	}
+
+	if st := c.pullRequestCIState(context.Background(), "o/r", 1); st != "UNKNOWN" {
+		t.Fatalf("expected UNKNOWN for empty sha, got %s", st)
+	}
+	if st := c.pullRequestCIState(context.Background(), "o/r", 2); st != "UNKNOWN" {
+		t.Fatalf("expected UNKNOWN for status error, got %s", st)
+	}
+	if st := c.pullRequestCIState(context.Background(), "o/r", 3); st != "UNKNOWN" {
+		t.Fatalf("expected UNKNOWN for empty status state, got %s", st)
+	}
+	if st := c.pullRequestCIState(context.Background(), "o/r", 999); st != "UNKNOWN" {
+		t.Fatalf("expected UNKNOWN for 404 PR, got %s", st)
+	}
+}
+
+func TestIssueLabelNamesAndCollectEdgeCases(t *testing.T) {
+	it := &gh.Issue{
+		Labels: []*gh.Label{
+			{Name: gh.String("")},
+			{Name: gh.String("valid")},
+		},
+	}
+	names := issueLabelNames(it)
+	if len(names) != 1 || names[0] != "valid" {
+		t.Fatalf("unexpected names: %v", names)
+	}
+
+	merged := make(map[string]model.AccountIssueItem)
+	now := time.Now()
+	older := now.Add(-10 * time.Minute)
+	newer := now
+
+	it1 := &gh.Issue{
+		Number:        gh.Int(1),
+		Title:         gh.String("old"),
+		RepositoryURL: gh.String("https://api.github.com/repos/o/r"),
+		State:         gh.String("open"),
+		UpdatedAt:     &gh.Timestamp{Time: older},
+		User:          &gh.User{Login: gh.String("me")},
+	}
+	collectIssue(merged, it1, "me")
+
+	it2 := &gh.Issue{
+		Number:        gh.Int(1),
+		Title:         gh.String("new"),
+		RepositoryURL: gh.String("https://api.github.com/repos/o/r"),
+		State:         gh.String("open"),
+		UpdatedAt:     &gh.Timestamp{Time: newer},
+		User:          &gh.User{Login: gh.String("me")},
+	}
+	collectIssue(merged, it2, "me")
+
+	if merged["o/r#1"].Title != "new" {
+		t.Fatalf("expected title updated to 'new', got %s", merged["o/r#1"].Title)
+	}
+}
+
+func TestRepositoryFullNameFromURLEdgeCases(t *testing.T) {
+	if res := repositoryFullNameFromURL(""); res != "-" {
+		t.Fatalf("expected '-', got %q", res)
+	}
+	if res := repositoryFullNameFromURL("https://github.com/no-repos-prefix"); res != "-" {
+		t.Fatalf("expected '-', got %q", res)
+	}
+	if res := repositoryFullNameFromURL("https://api.github.com/repos/onlyowner"); res != "-" {
+		t.Fatalf("expected '-', got %q", res)
+	}
+}
+
+func TestDefaultRunGhAuthToken(t *testing.T) {
+	// Call default runGhAuthToken function
+	_, _ = runGhAuthToken(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = runGhAuthToken(ctx)
+}
+
+func TestListPRFilesPagination(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/repos/o/r/pulls/1/files", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		if page == "2" {
+			_, _ = w.Write([]byte(`[{"filename":"b.txt"}]`))
+			return
+		}
+		w.Header().Set("Link", `<http://`+r.Host+`/api/v3/repos/o/r/pulls/1/files?page=2>; rel="next"`)
+		_, _ = w.Write([]byte(`[{"filename":"a.txt"}]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(srv.URL+"/", srv.URL+"/")
+	c := &Client{client: ghc, auth: true}
+	files, err := c.ListPRFiles(context.Background(), "o", "r", 1)
+	if err != nil || len(files) != 2 {
+		t.Fatalf("expected 2 files from pagination, got %v, %v", files, err)
+	}
+}
+
+func TestSearchAssigneeError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/search/issues", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		if strings.Contains(q, "author:") {
+			_, _ = w.Write([]byte(`{"items":[]}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ghc, _ := gh.NewClient(nil).WithEnterpriseURLs(srv.URL+"/", srv.URL+"/")
+	c := &Client{client: ghc, auth: true}
+	_, _, err := c.searchAuthorAndAssignee(context.Background(), "testuser")
+	if err == nil {
+		t.Fatal("expected error on assignee search, got nil")
 	}
 }

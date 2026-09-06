@@ -76,6 +76,13 @@ func TestScanReposWildcard(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(repo1, ".git"), 0o755)
 	_ = os.MkdirAll(filepath.Join(repo2, ".git"), 0o755)
 	_ = os.MkdirAll(nonRepo, 0o755)
+	_ = os.WriteFile(filepath.Join(root, "regular-file.txt"), []byte("hello"), 0o644)
+
+	// Test non-existent path in expandWildcardPath
+	_, err := expandWildcardPath(filepath.Join(root, "non-existent-sub"))
+	if err == nil {
+		t.Fatal("expected error for non-existent path in expandWildcardPath, got nil")
+	}
 
 	// Test wildcard path /*
 	repos, err := ScanRepos([]string{root + "/*"})
@@ -226,4 +233,54 @@ func TestScanReposWithDepthNegativeDepth(t *testing.T) {
 	if len(repos) != 0 {
 		t.Fatalf("expected 0 repos, got %d", len(repos))
 	}
+
+	// Test with a real repo and depth 0
+	_ = os.MkdirAll(filepath.Join(root, ".git"), 0o755)
+	repos0, err := ScanReposWithDepth(root, 0)
+	if err != nil || len(repos0) != 1 {
+		t.Fatalf("expected 1 repo with depth 0, got %d, err %v", len(repos0), err)
+	}
+	reposNeg, err := ScanReposWithDepth(root, -1)
+	if err != nil || len(reposNeg) != 1 {
+		t.Fatalf("expected 1 repo with depth -1, got %d, err %v", len(reposNeg), err)
+	}
+}
+
+func TestScanErrorBranches(t *testing.T) {
+	// Case 1: expandIfWildcard error path
+	repos, handled := expandIfWildcard("/nonexistent/cannot/exist/*")
+	if !handled || repos != nil {
+		t.Fatalf("expected handled=true and repos=nil, got %v, %v", handled, repos)
+	}
+
+	// Case 2: walkDirectory unreadable dir
+	root := t.TempDir()
+	unreadable := filepath.Join(root, "unreadable")
+	_ = os.MkdirAll(unreadable, 0o755)
+	_ = os.Chmod(unreadable, 0o000)
+	defer func() { _ = os.Chmod(unreadable, 0o755) }()
+
+	seen := make(map[string]struct{})
+	var dirRepos []RepoDir
+	walkDirectory(unreadable, 2, 0, seen, &dirRepos)
+
+	// Case 3: isGitWorktreeFile unreadable file
+	unreadableFile := filepath.Join(root, "unreadable_file")
+	_ = os.WriteFile(unreadableFile, []byte("gitdir: ..."), 0o644)
+	_ = os.Chmod(unreadableFile, 0o000)
+	defer func() { _ = os.Chmod(unreadableFile, 0o644) }()
+	_, _ = isGitWorktreeFile(root, unreadableFile)
+
+	// Case 4: isGitWorktreeFile stat error on target
+	targetParent := filepath.Join(root, "target_parent")
+	targetDir := filepath.Join(targetParent, "target")
+	_ = os.MkdirAll(targetDir, 0o755)
+	_ = os.Chmod(targetParent, 0o000)
+	defer func() { _ = os.Chmod(targetParent, 0o755) }()
+	linkFile := filepath.Join(root, "link_file")
+	_ = os.WriteFile(linkFile, []byte("gitdir: "+targetDir), 0o644)
+	_, _ = isGitWorktreeFile(root, linkFile)
+
+	// Case 5: IsGitRepo stat error on unreadable directory
+	_, _ = IsGitRepo(unreadable)
 }

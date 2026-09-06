@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -222,6 +223,7 @@ func TestParseHelp(t *testing.T) {
 }
 
 func TestValidateLimits(t *testing.T) {
+	// Case 1: negative and zero
 	interval := -1
 	concurrency := 0
 	validateLimits(&interval, &concurrency)
@@ -230,6 +232,28 @@ func TestValidateLimits(t *testing.T) {
 	}
 	if concurrency != DefaultConcurrency {
 		t.Errorf("concurrency = %d, want %d", concurrency, DefaultConcurrency)
+	}
+
+	// Case 2: zero and negative
+	interval = 0
+	concurrency = -1
+	validateLimits(&interval, &concurrency)
+	if interval != DefaultIntervalSec {
+		t.Errorf("interval = %d, want %d", interval, DefaultIntervalSec)
+	}
+	if concurrency != DefaultConcurrency {
+		t.Errorf("concurrency = %d, want %d", concurrency, DefaultConcurrency)
+	}
+
+	// Case 3: positive values should be preserved
+	interval = 10
+	concurrency = 5
+	validateLimits(&interval, &concurrency)
+	if interval != 10 {
+		t.Errorf("interval = %d, want %d", interval, 10)
+	}
+	if concurrency != 5 {
+		t.Errorf("concurrency = %d, want %d", concurrency, 5)
 	}
 }
 
@@ -254,6 +278,36 @@ func TestLoadGlobalConfigErrors(t *testing.T) {
 	_, err = LoadGlobalConfig()
 	if err == nil {
 		t.Fatalf("expected error on invalid json, got nil")
+	}
+
+	// Case 3: config.json is a directory (os.ReadFile returns EISDIR, not IsNotExist)
+	_ = os.Remove(filepath.Join(configDir, "config.json"))
+	_ = os.Mkdir(filepath.Join(configDir, "config.json"), 0o755)
+	_, err = LoadGlobalConfig()
+	if err == nil {
+		t.Fatalf("expected error when config.json is directory, got nil")
+	}
+
+	// Case 4: HOME is unset
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	_, err = LoadGlobalConfig()
+	if err == nil {
+		t.Fatalf("expected error when HOME is unset, got nil")
+	}
+}
+
+func TestBuildWorkspaceConfigGetwdError(t *testing.T) {
+	orig := getwd
+	defer func() { getwd = orig }()
+
+	getwd = func() (string, error) {
+		return "", errors.New("simulated getwd error")
+	}
+
+	_, err := buildWorkspaceConfig(10, 5, false, 1)
+	if err == nil {
+		t.Fatal("expected error from buildWorkspaceConfig, got nil")
 	}
 }
 

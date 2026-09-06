@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,7 +31,7 @@ func TestRunHelpFlag(t *testing.T) {
 
 func TestRunSuccess(t *testing.T) {
 	orig := runProgram
-	runProgram = func(_ tea.Model) error { return nil }
+	runProgram = func(_ tea.Model, _ ...tea.ProgramOption) error { return nil }
 	defer func() { runProgram = orig }()
 
 	buf := bytes.NewBuffer(nil)
@@ -42,7 +43,7 @@ func TestRunSuccess(t *testing.T) {
 
 func TestRunProgramFailure(t *testing.T) {
 	orig := runProgram
-	runProgram = func(_ tea.Model) error { return errors.New("boom") }
+	runProgram = func(_ tea.Model, _ ...tea.ProgramOption) error { return errors.New("boom") }
 	defer func() { runProgram = orig }()
 
 	buf := bytes.NewBuffer(nil)
@@ -71,7 +72,7 @@ func TestMainFunction(t *testing.T) {
 	}()
 
 	os.Args = []string{"peekgit", "--no-github"}
-	runProgram = func(_ tea.Model) error { return nil }
+	runProgram = func(_ tea.Model, _ ...tea.ProgramOption) error { return nil }
 
 	exitCode := -1
 	osExit = func(code int) {
@@ -81,5 +82,18 @@ func TestMainFunction(t *testing.T) {
 	main()
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d", exitCode)
+	}
+}
+
+type immediateQuitModel struct{}
+
+func (immediateQuitModel) Init() tea.Cmd                       { return tea.Quit }
+func (immediateQuitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return immediateQuitModel{}, tea.Quit }
+func (immediateQuitModel) View() string                        { return "" }
+
+func TestDefaultRunProgram(t *testing.T) {
+	err := runProgram(immediateQuitModel{}, tea.WithoutRenderer(), tea.WithInput(strings.NewReader("")))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

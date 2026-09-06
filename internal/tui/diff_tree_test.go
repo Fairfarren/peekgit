@@ -125,4 +125,22 @@ func TestParseDiffHeaderInvalid(t *testing.T) {
 	if f := parseDiffHeader("diff --git a/single_path"); f.Path != "single_path" {
 		t.Errorf("expected single_path, got %s", f.Path)
 	}
+	if f := parseDiffHeader("diff --git a/test b/"); f.Path != "test" {
+		t.Errorf("expected test, got %s", f.Path)
+	}
+}
+
+func TestParseDiffEmptyAndGetFileByIndexMissing(t *testing.T) {
+	dt := ParseDiff("")
+	if dt == nil || len(dt.Files) != 0 {
+		t.Fatalf("expected empty diff tree for empty raw string")
+	}
+
+	dtMissing := &DiffTree{
+		Files:    []FileDiff{{Path: "file1.go"}},
+		FileList: []string{"missing.go"},
+	}
+	if f := dtMissing.GetFileByIndex(0); f != nil {
+		t.Fatalf("expected nil when file in FileList is missing from Files")
+	}
 }

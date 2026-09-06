@@ -20,10 +20,7 @@ func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
 	if depth <= 0 {
 		depth = 0
 	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return nil, err
-	}
+	absRoot, _ := filepath.Abs(root)
 
 	repos := make([]RepoDir, 0)
 	seen := make(map[string]struct{})
@@ -83,10 +80,7 @@ func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 			continue
 		}
 
-		absPath, err := filepath.Abs(p)
-		if err != nil {
-			continue
-		}
+		absPath, _ := filepath.Abs(p)
 
 		ok, err := IsGitRepo(absPath)
 		if err != nil || !ok {
@@ -152,10 +146,7 @@ func normalizeParentPath(parentPath string) string {
 
 // expandWildcardPath scans the parent directory and returns all git repo subdirectories
 func expandWildcardPath(parentPath string) ([]RepoDir, error) {
-	absParent, err := filepath.Abs(normalizeParentPath(parentPath))
-	if err != nil {
-		return nil, err
-	}
+	absParent, _ := filepath.Abs(normalizeParentPath(parentPath))
 
 	entries, err := os.ReadDir(absParent)
 	if err != nil {

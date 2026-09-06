@@ -131,19 +131,18 @@ func validateLimits(interval, concurrency *int) {
 	}
 }
 
+var getwd = os.Getwd
+
 func buildWorkspaceConfig(interval, concurrency int, noGitHub bool, workspaceDepth int) (Config, error) {
 	depth := workspaceDepth
 	if depth <= 0 {
 		depth = 0
 	}
-	wd, err := os.Getwd()
+	wd, err := getwd()
 	if err != nil {
 		return Config{}, err
 	}
-	root, err := filepath.Abs(wd)
-	if err != nil {
-		return Config{}, err
-	}
+	root := filepath.Clean(wd)
 	global := GlobalConfig{
 		Workspaces: WorkspaceMap{
 			root: {root},
