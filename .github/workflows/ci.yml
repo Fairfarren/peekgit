@@ -63,11 +63,11 @@ jobs:
         run: |
           echo "### 🔍 CRAP Analysis Summary (Threshold <= 8)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          go-crap scan --coverage-profile coverage.out --mutation-report gremlins-report.json --threshold 8 --format table | tee -a $GITHUB_STEP_SUMMARY
+          go-crap scan --coverage-profile coverage.out --threshold 8 --format table | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           
           # Annotate GitHub PR and enforce hard threshold
-          go-crap scan --coverage-profile coverage.out --mutation-report gremlins-report.json --threshold 8 --fail-above --format github
+          go-crap scan --coverage-profile coverage.out --threshold 8 --fail-above --format github
 
       - name: Enforce 100% Test Coverage Baseline
         if: success() || failure()

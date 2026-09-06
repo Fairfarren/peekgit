@@ -13,12 +13,10 @@ cover:
 
 crap:
 	@which go-crap >/dev/null 2>&1 || $(MAKE) install-tools
-	go-crap scan --threshold 8 --fail-above
+	go-crap scan --coverage-profile coverage.out --threshold 8 --fail-above
 
 mutate:
 	@which gremlins >/dev/null 2>&1 || $(MAKE) install-tools
 	gremlins unleash -o gremlins-report.json
 
-quality: cover mutate
-	@which go-crap >/dev/null 2>&1 || $(MAKE) install-tools
-	go-crap scan --coverage-profile coverage.out --mutation-report gremlins-report.json --threshold 8 --fail-above
+quality: cover mutate crap
