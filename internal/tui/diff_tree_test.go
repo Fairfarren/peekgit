@@ -154,3 +154,13 @@ func Test_按索引读取文件_首项有效负数无效(t *testing.T) {
 		t.Fatalf("首项文件 = %+v", got)
 	}
 }
+
+func Test_按索引读取文件_等于文件数时返回空(t *testing.T) {
+	tree := BuildDiffTree([]FileDiff{{Path: "a.go", Content: "内容"}})
+
+	got := tree.GetFileByIndex(1)
+
+	if got != nil {
+		t.Fatalf("越界文件 = %+v", got)
+	}
+}

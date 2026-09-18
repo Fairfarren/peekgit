@@ -1241,7 +1241,7 @@ func (a *App) openWorkspaceTabCurrentURLCmd() tea.Cmd {
 
 func (a *App) buildHomeHeaderLines() []string {
 	wsName := ""
-	if len(a.workspaces) > 0 && a.selectedWsIndex < len(a.workspaces) {
+	if 0 <= a.selectedWsIndex && a.selectedWsIndex < len(a.workspaces) {
 		wsName = a.workspaces[a.selectedWsIndex]
 	}
 	header := titleStyle.Render("Repo Monitor")
@@ -1667,7 +1667,7 @@ func issueTableColumnWidths(totalWidth int, idWidth int) (titleWidth int, labels
 	totalWidth = max(40, totalWidth)
 	labelsWidth = 12
 	updatedWidth = 20
-	gapTotal := 6 // 3 gaps * 2 spaces
+	gapTotal := 6
 	titleWidth = totalWidth - idWidth - labelsWidth - updatedWidth - gapTotal
 
 	minTitle := 20

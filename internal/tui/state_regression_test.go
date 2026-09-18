@@ -281,8 +281,7 @@ func Test_筛选收缩_选择回到最后匹配仓库(t *testing.T) {
 	a := fixtureApp()
 	a.screen = screenHome
 	a.selectedIndex = 9
-	a.filterMode = true
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ta")})
+	a.filterText = "ta"
 
 	view := a.View()
 
@@ -344,11 +343,12 @@ func Test_简单差异窗口_保留正文与底部操作(t *testing.T) {
 }
 
 func Test_无有效工作区选择_页头不显示名称(t *testing.T) {
-	for _, index := range []int{0, 1} {
+	for _, index := range []int{-1, 0, 1} {
 		t.Run(string(rune('0'+index)), func(t *testing.T) {
 			a := fixtureApp()
 			a.screen = screenHome
 			a.workspaces = nil
+			a.selectedWsIndex = index
 			if index == 1 {
 				a.workspaces = []string{"不应显示"}
 				a.selectedWsIndex = 1
