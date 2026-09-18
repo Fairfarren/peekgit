@@ -8,6 +8,13 @@ import (
 	"strings"
 )
 
+var (
+	absolutePath  = filepath.Abs
+	statPath      = os.Stat
+	readDirectory = os.ReadDir
+	readFile      = os.ReadFile
+)
+
 type RepoDir struct {
 	Name string
 	Path string
@@ -19,7 +26,10 @@ func ScanRepos(configuredPaths []string) ([]RepoDir, error) {
 
 func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
 	depth = max(depth, 0)
-	absRoot, _ := filepath.Abs(root)
+	absRoot, err := absolutePath(root)
+	if err != nil {
+		return nil, err
+	}
 
 	repos := make([]RepoDir, 0)
 	seen := make(map[string]struct{})
@@ -46,7 +56,7 @@ func walkDirectory(path string, depth, d int, seen map[string]struct{}, repos *[
 		return
 	}
 
-	entries, err := os.ReadDir(path)
+	entries, err := readDirectory(path)
 	if err != nil {
 		return
 	}
@@ -77,7 +87,10 @@ func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 			continue
 		}
 
-		absPath, _ := filepath.Abs(p)
+		absPath, err := absolutePath(p)
+		if err != nil {
+			continue
+		}
 
 		ok, err := IsGitRepo(absPath)
 		if err != nil || !ok {
@@ -90,7 +103,7 @@ func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 
 func IsGitRepo(path string) (bool, error) {
 	gitPath := filepath.Join(path, ".git")
-	info, err := os.Stat(gitPath)
+	info, err := statPath(gitPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -106,7 +119,7 @@ func IsGitRepo(path string) (bool, error) {
 }
 
 func isGitWorktreeFile(repoPath, gitFilePath string) (bool, error) {
-	b, err := os.ReadFile(gitFilePath)
+	b, err := readFile(gitFilePath)
 	if err != nil {
 		return false, err
 	}
@@ -121,7 +134,7 @@ func isGitWorktreeFile(repoPath, gitFilePath string) (bool, error) {
 	if !filepath.IsAbs(gdir) {
 		gdir = filepath.Join(repoPath, gdir)
 	}
-	st, err := os.Stat(gdir)
+	st, err := statPath(gdir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -143,9 +156,12 @@ func normalizeParentPath(parentPath string) string {
 
 // expandWildcardPath scans the parent directory and returns all git repo subdirectories
 func expandWildcardPath(parentPath string) ([]RepoDir, error) {
-	absParent, _ := filepath.Abs(normalizeParentPath(parentPath))
+	absParent, err := absolutePath(normalizeParentPath(parentPath))
+	if err != nil {
+		return nil, err
+	}
 
-	entries, err := os.ReadDir(absParent)
+	entries, err := readDirectory(absParent)
 	if err != nil {
 		return nil, err
 	}
