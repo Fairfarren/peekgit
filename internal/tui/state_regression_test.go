@@ -193,18 +193,19 @@ func Test_打开链接_使用当前页签选中项(t *testing.T) {
 				a.prList = nil
 				a.issues = nil
 			}
-			got := ""
-			old := openBrowser
-			openBrowser = func(url string) error { got = url; return nil }
-			t.Cleanup(func() { openBrowser = old })
+			targets := stubBrowserTargets(t)
+			var want []string
+			if tc.want != "" {
+				want = []string{tc.want}
+			}
 
 			_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 			if cmd != nil {
 				cmd()
 			}
 
-			if got != tc.want {
-				t.Fatalf("链接 = %q，期望 %q", got, tc.want)
+			if !reflect.DeepEqual(*targets, want) {
+				t.Fatalf("打开目标 = %q，期望 %q", *targets, want)
 			}
 		})
 	}

@@ -1269,6 +1269,7 @@ func TestSwitchStartTabBounds(t *testing.T) {
 }
 
 func TestOpenWorkspaceTabCurrentURLEmpty(t *testing.T) {
+	targets := stubBrowserTargets(t)
 	a := newTestApp()
 	a.startPRs = nil
 	a.startIssues = nil
@@ -1276,6 +1277,9 @@ func TestOpenWorkspaceTabCurrentURLEmpty(t *testing.T) {
 	msg := cmd()
 	if msg != nil {
 		t.Fatalf("expected nil msg from openWorkspaceTabCurrentURLCmd when url is empty, got %v", msg)
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("空账号链接仍请求打开: %q", *targets)
 	}
 }
 
@@ -1889,12 +1893,16 @@ func TestRemainingEdgeCases(t *testing.T) {
 		}
 	}
 
-	// 11. openCurrentURLCmd when url is empty
+	// 空链接不得产生打开桌面程序的副作用。
+	targets := stubBrowserTargets(t)
 	a.prList = nil
 	a.issues = nil
 	cmdURL := a.openCurrentURLCmd()
 	if msg := cmdURL(); msg != nil {
 		t.Fatalf("expected nil msg from openCurrentURLCmd, got %v", msg)
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("空仓库链接仍请求打开: %q", *targets)
 	}
 
 	// 12. recomputeGrid bounds
