@@ -9,6 +9,12 @@ import (
 )
 
 func stubAbsolutePathError(t *testing.T) error {
+	stubScanFilesystem(t)
+	// 模拟当前目录本身是仓库，防止忽略解析错误时空路径检查悄悄通过。
+	files := fstest.MapFS{"repo": &fstest.MapFile{Mode: fs.ModeDir}}
+	dir, _ := files.Stat("repo")
+	statPath = func(string) (fs.FileInfo, error) { return dir, nil }
+	readDirectory = func(string) ([]fs.DirEntry, error) { return []fs.DirEntry{fs.FileInfoToDirEntry(dir)}, nil }
 	original := absolutePath
 	failure := errors.New("路径包含无效字符")
 	absolutePath = func(string) (string, error) { return "", failure }
