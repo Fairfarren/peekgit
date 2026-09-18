@@ -33,7 +33,7 @@ Go (1.21+): Follow standard conventions
 ## Quality Standards & Tooling
 - **Test Coverage**: Mandatory 100% statement coverage.
 - **CRAP Threshold**: Maximum score of 8 per function (calculated via `go-crap`).
-- **Mutation Testing**: Evaluated with `gremlins`.
+- **变异测试**：有效率与变异覆盖率均须达到 100%；使用 `make mutate` 精确校验原始报告，超时或跳过不得放行。
 
 ## Quality Commands
 ```bash
