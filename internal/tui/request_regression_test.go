@@ -126,3 +126,41 @@ func Test_工作区检查_请求预算允许发现更新(t *testing.T) {
 		t.Fatal("工作区检查未发现远程更新")
 	}
 }
+
+type pullResultExecutor struct {
+	results map[string]error
+}
+
+func (e pullResultExecutor) Run(_ context.Context, dir string, _ ...string) (string, error) {
+	return "", e.results[dir]
+}
+
+func Test_拉取选中仓库_返回对应对象与失败原因(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenHome
+	a.selectedIndex = 1
+	failure := errors.New("拉取被拒绝")
+	a.git = gitcli.NewWithExecutor(pullResultExecutor{results: map[string]error{"/tmp/repo-b": failure}})
+
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	got := cmd().(pullDoneMsg)
+
+	if got.repoPath != "/tmp/repo-b" || !errors.Is(got.err, failure) {
+		t.Fatalf("拉取结果 = %+v", got)
+	}
+}
+
+func Test_筛选零匹配时拉取全部_包含隐藏仓库并统计失败(t *testing.T) {
+	a := newTestApp()
+	a.screen = screenHome
+	a.filterText = "无匹配仓库"
+	failure := errors.New("拉取被拒绝")
+	a.git = gitcli.NewWithExecutor(pullResultExecutor{results: map[string]error{"/tmp/repo-b": failure}})
+
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
+	got := cmd().(pullAllDoneMsg)
+
+	if got.completed != 2 || got.failed != 1 || !errors.Is(got.lastErr, failure) {
+		t.Fatalf("全部拉取结果 = %+v", got)
+	}
+}

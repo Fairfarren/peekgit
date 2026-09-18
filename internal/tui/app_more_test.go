@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -555,6 +554,7 @@ func TestAppMessageHandling(t *testing.T) {
 }
 
 func TestAppCommandsExecution(t *testing.T) {
+	stubLifecycle(t)
 	origBrowser := openBrowser
 	openBrowser = func(string) error { return nil }
 	defer func() { openBrowser = origBrowser }()
@@ -572,13 +572,6 @@ func TestAppCommandsExecution(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected configWatchTickCmd")
 	}
-
-	// scanWorkspaceRepos
-	a.cfg.WorkspaceMode = true
-	a.cfg.WorkspaceRoot = t.TempDir()
-	_, _ = a.scanWorkspaceRepos([]string{"/tmp"})
-	a.cfg.WorkspaceMode = false
-	_, _ = a.scanWorkspaceRepos([]string{"/tmp"})
 
 	// refreshRepoCmd
 	cmd = a.refreshRepoCmd(1, "repo", "/tmp/nonexistent")
@@ -674,7 +667,7 @@ func TestAppCommandsExecution(t *testing.T) {
 	cmd = a.pullCurrentCmd()
 	if cmd != nil {
 		msg := cmd()
-		if _, ok := msg.(pullDoneMsg); !ok {
+		if result, ok := msg.(pullDoneMsg); !ok || result.repoPath != "/tmp/repo-a" || result.err != nil {
 			t.Fatalf("expected pullDoneMsg, got %T", msg)
 		}
 	}
@@ -683,7 +676,7 @@ func TestAppCommandsExecution(t *testing.T) {
 	cmd = a.pullAllCmd()
 	if cmd != nil {
 		msg := cmd()
-		if _, ok := msg.(pullAllDoneMsg); !ok {
+		if result, ok := msg.(pullAllDoneMsg); !ok || result.completed != 1 || result.failed != 0 || result.lastErr != nil {
 			t.Fatalf("expected pullAllDoneMsg, got %T", msg)
 		}
 	}
@@ -1517,8 +1510,7 @@ func TestLoadRemoteCmdViaServer(t *testing.T) {
 	}
 
 	tmpGit := t.TempDir()
-	_ = exec.Command("git", "init", tmpGit).Run()
-	_ = exec.Command("git", "-C", tmpGit, "remote", "add", "origin", "https://github.com/myowner/myrepo.git").Run()
+	a.git = gitcli.NewWithExecutor(mockGitExecForTest{fn: func(...string) (string, error) { return "https://github.com/myowner/myrepo.git", nil }})
 
 	cmd2 := a.loadRemoteCmd(model.RepoStatus{Path: tmpGit})
 	msg2 := cmd2().(remoteLoadedMsg)
@@ -1530,8 +1522,7 @@ func TestLoadRemoteCmdViaServer(t *testing.T) {
 	}
 
 	tmpErr := t.TempDir()
-	_ = exec.Command("git", "init", tmpErr).Run()
-	_ = exec.Command("git", "-C", tmpErr, "remote", "add", "origin", "https://github.com/erruser/errrepo.git").Run()
+	a.git = gitcli.NewWithExecutor(mockGitExecForTest{fn: func(...string) (string, error) { return "https://github.com/erruser/errrepo.git", nil }})
 
 	cmd3 := a.loadRemoteCmd(model.RepoStatus{Path: tmpErr})
 	msg3 := cmd3().(remoteLoadedMsg)
@@ -1611,23 +1602,11 @@ func TestLoadAccountRemoteCmdErrors(t *testing.T) {
 }
 
 func TestWorkspaceCheckOneCmdBranches(t *testing.T) {
+	stubLifecycle(t)
 	a := newTestApp()
-
-	cmd1 := a.workspaceCheckOneCmd("ws1", []string{"/invalid/nonexistent/path"})
-	msg1 := cmd1().(workspaceCheckDoneMsg)
-	if msg1.hasUpdate {
-		t.Fatalf("expected hasUpdate=false for invalid path")
-	}
-
-	tmpDir := t.TempDir()
-	repoDir := filepath.Join(tmpDir, "repo1")
-	_ = os.MkdirAll(repoDir, 0755)
-	_ = exec.Command("git", "init", repoDir).Run()
-
-	cmd2 := a.workspaceCheckOneCmd("ws1", []string{tmpDir})
-	msg2 := cmd2().(workspaceCheckDoneMsg)
-	if msg2.hasUpdate {
-		t.Fatalf("expected hasUpdate=false")
+	got := a.workspaceCheckOneCmd("ws1", []string{"/测试工作区"})().(workspaceCheckDoneMsg)
+	if got.hasUpdate {
+		t.Fatalf("空扫描结果 = %+v", got)
 	}
 }
 
@@ -1719,6 +1698,7 @@ func TestPullCurrentCmdNoRepo(t *testing.T) {
 
 func TestPullAllCmdFailures(t *testing.T) {
 	a := newTestApp()
+	a.git = gitcli.NewWithExecutor(mockGitExecForTest{fn: func(...string) (string, error) { return "", errors.New("拉取失败") }})
 	a.repos = []model.RepoStatus{
 		{Path: "/nonexistent/repo1"},
 		{Path: "/nonexistent/repo2"},
@@ -1877,8 +1857,7 @@ func TestRemainingEdgeCases(t *testing.T) {
 
 	// 9. loadPRDiffCmd with valid remote repo
 	tmpGit := t.TempDir()
-	_ = exec.Command("git", "init", tmpGit).Run()
-	_ = exec.Command("git", "-C", tmpGit, "remote", "add", "origin", "https://github.com/owner/repo.git").Run()
+	a.git = gitcli.NewWithExecutor(mockGitExecForTest{fn: func(...string) (string, error) { return "https://github.com/owner/repo.git", nil }})
 	cmdPRDiff := a.loadPRDiffCmd(model.RepoStatus{Path: tmpGit}, 1)
 	if cmdPRDiff != nil {
 		_ = cmdPRDiff()
