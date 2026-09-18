@@ -20,7 +20,8 @@ $(GO_CRAP):
 install-tools: $(GREMLINS) $(GO_CRAP)
 
 format-check:
-	@test -z "$$(gofmt -l cmd internal)" || { gofmt -l cmd internal; exit 1; }
+	@files=$$(gofmt -l cmd internal) || exit $$?; \
+		test -z "$$files" || { printf '%s\n' "$$files"; exit 1; }
 
 test:
 	go test -count=1 -timeout=90s ./...

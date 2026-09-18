@@ -14,6 +14,18 @@ expect_failure() {
     fi
 }
 
+# 格式门禁必须同时验证工具退出状态和未格式化文件列表。
+mkdir "$fixture/bin"
+cat > "$fixture/bin/gofmt" <<'SH'
+#!/bin/sh
+printf '%s' "$FORMAT_OUTPUT"
+exit "$FORMAT_EXIT"
+SH
+chmod +x "$fixture/bin/gofmt"
+expect_failure env PATH="$fixture/bin:$PATH" FORMAT_OUTPUT= FORMAT_EXIT=2 make -C "$script_dir/.." format-check
+expect_failure env PATH="$fixture/bin:$PATH" FORMAT_OUTPUT=unformatted.go FORMAT_EXIT=0 make -C "$script_dir/.." format-check
+env PATH="$fixture/bin:$PATH" FORMAT_OUTPUT= FORMAT_EXIT=0 make -C "$script_dir/.." format-check
+
 printf 'mode: atomic\na.go:1.1,2.1 2030 1\na.go:3.1,4.1 1 0\n' | expect_failure awk -f "$script_dir/check-coverage.awk"
 printf 'mode: atomic\n' | expect_failure awk -f "$script_dir/check-coverage.awk"
 printf '损坏的报告\n' | expect_failure awk -f "$script_dir/check-coverage.awk"
