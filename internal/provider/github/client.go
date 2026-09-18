@@ -20,9 +20,11 @@ import (
 var ErrUnauthenticated = errors.New("unauthenticated")
 var ErrDiffTooLarge = errors.New("diff-too-large")
 
+var authCommandOutput = (*exec.Cmd).Output
+
 var runGhAuthToken = func(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "auth", "token")
-	out, err := cmd.Output()
+	out, err := authCommandOutput(cmd)
 	if err != nil {
 		return "", err
 	}

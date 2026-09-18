@@ -257,7 +257,7 @@ func TestListBranchesError(t *testing.T) {
 func TestCheckoutBranchAndPull(t *testing.T) {
 	fx := fakeExec{out: map[string]string{
 		key("checkout", "feat"): "",
-		key("pull", "--quiet"): "",
+		key("pull", "--quiet"):  "",
 	}}
 	cli := NewWithExecutor(fx)
 	if err := cli.CheckoutBranch(context.Background(), "/tmp/x", "feat"); err != nil {

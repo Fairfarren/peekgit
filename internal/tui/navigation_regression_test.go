@@ -1,0 +1,72 @@
+package tui
+
+import (
+	"errors"
+	"io"
+	"net/http"
+	"os/exec"
+	"strings"
+	"testing"
+
+	ghprovider "github.com/Fairfarren/peekgit/internal/provider/github"
+	tea "github.com/charmbracelet/bubbletea"
+	gh "github.com/google/go-github/v57/github"
+)
+
+type emptyAccountTransport struct{}
+
+func (emptyAccountTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"login":"test-user","items":[]}`))}, nil
+}
+
+func TestWorkspaceNavigationCompletesEmptyAccountLoad(t *testing.T) {
+	cases := []struct {
+		name string
+		key  tea.KeyMsg
+		from startTab
+		to   startTab
+	}{
+		{"右键", tea.KeyMsg{Type: tea.KeyRight}, startTabPR, startTabIssue},
+		{"l键", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}, startTabPR, startTabIssue},
+		{"左键", tea.KeyMsg{Type: tea.KeyLeft}, startTabIssue, startTabPR},
+		{"h键", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, startTabIssue, startTabPR},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestApp()
+			a.screen = screenWorkspaces
+			a.startTab = tc.from
+			a.gh = ghprovider.NewWithClient(gh.NewClient(&http.Client{Transport: emptyAccountTransport{}}))
+
+			_, cmd := a.Update(tc.key)
+
+			if cmd == nil {
+				t.Fatal("切换页签没有返回加载命令")
+			}
+			a.Update(cmd())
+			if a.startLoading || a.startTab != tc.to || a.startPRErr != "" || a.startIssueErr != "" {
+				t.Fatalf("加载未完成: tab=%v, loading=%v, PR=%q, Issue=%q", a.startTab, a.startLoading, a.startPRErr, a.startIssueErr)
+			}
+		})
+	}
+}
+
+func TestBrowserCommandResult(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{{"成功", nil}, {"失败", errors.New("浏览器启动失败")}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := runBrowserCommand
+			t.Cleanup(func() { runBrowserCommand = original })
+			runBrowserCommand = func(*exec.Cmd) error { return tc.err }
+
+			err := openBrowser("https://example.com")
+
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("未传递浏览器执行结果: %v", err)
+			}
+		})
+	}
+}

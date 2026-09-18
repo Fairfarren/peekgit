@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +30,7 @@ func TestResolveTokenFromEnv(t *testing.T) {
 }
 
 func TestResolveTokenFromGh(t *testing.T) {
-	_ = os.Unsetenv("GITHUB_TOKEN")
+	t.Setenv("GITHUB_TOKEN", "")
 	orig := runGhAuthToken
 	runGhAuthToken = func(context.Context) (string, error) {
 		return "from-gh", nil
@@ -42,7 +42,6 @@ func TestResolveTokenFromGh(t *testing.T) {
 		t.Fatalf("token = %s", token)
 	}
 }
-
 
 func TestNewWithClient(t *testing.T) {
 	cNil := NewWithClient(nil)
@@ -178,7 +177,7 @@ func TestListPRsUsesCache(t *testing.T) {
 }
 
 func TestResolveTokenEmptyWhenNoEnvAndGhFail(t *testing.T) {
-	_ = os.Unsetenv("GITHUB_TOKEN")
+	t.Setenv("GITHUB_TOKEN", "")
 	orig := runGhAuthToken
 	runGhAuthToken = func(context.Context) (string, error) {
 		return "", context.DeadlineExceeded
@@ -392,7 +391,7 @@ func TestNewWithToken(t *testing.T) {
 		t.Fatalf("expected authenticated client")
 	}
 
-	_ = os.Unsetenv("GITHUB_TOKEN")
+	t.Setenv("GITHUB_TOKEN", "")
 	orig := runGhAuthToken
 	runGhAuthToken = func(context.Context) (string, error) {
 		return "", errors.New("err")
@@ -614,11 +613,28 @@ func TestRepositoryFullNameFromURLEdgeCases(t *testing.T) {
 }
 
 func TestDefaultRunGhAuthToken(t *testing.T) {
-	// Call default runGhAuthToken function
-	_, _ = runGhAuthToken(context.Background())
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, _ = runGhAuthToken(ctx)
+	original := authCommandOutput
+	t.Cleanup(func() { authCommandOutput = original })
+	authCommandOutput = func(*exec.Cmd) ([]byte, error) { return []byte("  test-token\n"), nil }
+
+	token, err := runGhAuthToken(context.Background())
+
+	if err != nil || token != "test-token" {
+		t.Fatalf("凭据解析结果错误: %q, %v", token, err)
+	}
+}
+
+func TestDefaultRunGhAuthTokenError(t *testing.T) {
+	original := authCommandOutput
+	t.Cleanup(func() { authCommandOutput = original })
+	expected := errors.New("凭据命令失败")
+	authCommandOutput = func(*exec.Cmd) ([]byte, error) { return nil, expected }
+
+	_, err := runGhAuthToken(context.Background())
+
+	if !errors.Is(err, expected) {
+		t.Fatalf("未传递凭据命令错误: %v", err)
+	}
 }
 
 func TestListPRFilesPagination(t *testing.T) {

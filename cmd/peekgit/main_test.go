@@ -87,9 +87,11 @@ func TestMainFunction(t *testing.T) {
 
 type immediateQuitModel struct{}
 
-func (immediateQuitModel) Init() tea.Cmd                       { return tea.Quit }
-func (immediateQuitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return immediateQuitModel{}, tea.Quit }
-func (immediateQuitModel) View() string                        { return "" }
+func (immediateQuitModel) Init() tea.Cmd { return tea.Quit }
+func (immediateQuitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return immediateQuitModel{}, tea.Quit
+}
+func (immediateQuitModel) View() string { return "" }
 
 func TestDefaultRunProgram(t *testing.T) {
 	err := runProgram(immediateQuitModel{}, tea.WithoutRenderer(), tea.WithInput(strings.NewReader("")))

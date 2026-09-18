@@ -833,20 +833,6 @@ func TestBrowserOpenCmdForOS(t *testing.T) {
 	if cmdCurrent == nil {
 		t.Fatal("expected non-nil cmd for current OS")
 	}
-
-	origOpen := openBrowser
-	defer func() { openBrowser = origOpen }()
-	called := false
-	openBrowser = func(url string) error {
-		called = true
-		return nil
-	}
-	_ = openBrowser("https://example.com")
-	if !called {
-		t.Fatal("expected openBrowser to be called")
-	}
-
-	_ = origOpen("about:blank")
 }
 
 func TestTickAndConfigTickFunctions(t *testing.T) {
@@ -1573,9 +1559,23 @@ func TestRefreshRepoCmdViaServer(t *testing.T) {
 	a := newTestApp()
 	a.gh = ghprovider.NewWithClient(ghc)
 
-	tmpGit := t.TempDir()
-	_ = exec.Command("git", "init", tmpGit).Run()
-	_ = exec.Command("git", "-C", tmpGit, "remote", "add", "origin", "https://github.com/o1/r1.git").Run()
+	a.git = gitcli.NewWithExecutor(mockGitExecForTest{fn: func(args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "rev-parse --is-inside-work-tree":
+			return "true", nil
+		case "symbolic-ref --short HEAD":
+			return "main", nil
+		case "remote get-url origin":
+			return "https://github.com/o1/r1.git", nil
+		case "rev-parse --abbrev-ref --symbolic-full-name @{upstream}":
+			return "origin/main", nil
+		case "rev-list --left-right --count HEAD...origin/main":
+			return "0 0", nil
+		default:
+			return "", nil
+		}
+	}})
+	tmpGit := "/test/repo"
 
 	cmd := a.refreshRepoCmd(1, "r1", tmpGit)
 	msg := cmd().(repoRefreshDoneMsg)
@@ -1728,6 +1728,7 @@ func TestPullAllCmdFailures(t *testing.T) {
 
 func TestNewWorkspaceModeScanError(t *testing.T) {
 	cfg := config.Config{
+		NoGitHub:      true,
 		WorkspaceMode: true,
 		WorkspaceRoot: filepath.Join(t.TempDir(), "nonexistent_dir"),
 		Global: config.GlobalConfig{
@@ -1753,6 +1754,7 @@ func TestInitVariants(t *testing.T) {
 	}
 
 	cfg2 := config.Config{
+		NoGitHub:      true,
 		WorkspaceMode: true,
 		WorkspaceRoot: t.TempDir(),
 		Global: config.GlobalConfig{

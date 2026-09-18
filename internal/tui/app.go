@@ -575,30 +575,30 @@ func (a *App) handleWorkspaceTabKey(key string) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (a *App) handleWorkspaceNavKey(key string) bool {
+func (a *App) handleWorkspaceNavKey(key string) (tea.Cmd, bool) {
 	switch key {
 	case "left", "h":
 		if a.startTab == startTabWorkspace {
 			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "left")
 		} else {
-			a.switchStartTab(a.startTab - 1)
+			return a.switchStartTab(a.startTab - 1), true
 		}
-		return true
+		return nil, true
 	case "right", "l":
 		if a.startTab == startTabWorkspace {
 			a.selectedWsIndex = moveIndex(a.selectedWsIndex, len(a.workspaces), a.columns, "right")
 		} else {
-			a.switchStartTab(a.startTab + 1)
+			return a.switchStartTab(a.startTab + 1), true
 		}
-		return true
+		return nil, true
 	case "up", "k":
 		a.moveWorkspaceSelectionUp()
-		return true
+		return nil, true
 	case "down", "j":
 		a.moveWorkspaceSelectionDown()
-		return true
+		return nil, true
 	}
-	return false
+	return nil, false
 }
 
 func (a *App) moveWorkspaceSelectionUp() {
@@ -664,8 +664,8 @@ func (a *App) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if cmd, ok := a.handleWorkspaceTabKey(key); ok {
 		return a, cmd
 	}
-	if a.handleWorkspaceNavKey(key) {
-		return a, nil
+	if cmd, ok := a.handleWorkspaceNavKey(key); ok {
+		return a, cmd
 	}
 	if cmd, ok := a.handleWorkspaceActionKey(key); ok {
 		return a, cmd
@@ -2244,8 +2244,10 @@ func (a *App) openCurrentURLCmd() tea.Cmd {
 	}
 }
 
+var runBrowserCommand = (*exec.Cmd).Run
+
 var openBrowser = func(url string) error {
-	return browserOpenCmd(url).Run()
+	return runBrowserCommand(browserOpenCmd(url))
 }
 
 func browserOpenCmd(url string) *exec.Cmd {
