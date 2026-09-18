@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/Fairfarren/peekgit/internal/model"
 )
@@ -24,7 +25,7 @@ func Test_命令失败_保留标准错误或执行错误(t *testing.T) {
 			}
 			t.Cleanup(func() { runGitCommand = original })
 
-			_, err := (osExecutor{}).Run(context.Background(), "", "status")
+			err := New().CheckoutBranch(context.Background(), "", "main")
 
 			if err == nil || err.Error() != tc.want {
 				t.Fatalf("错误 = %v，期望 %s", err, tc.want)
@@ -76,5 +77,40 @@ func Test_分支列表_保留同步状态与错误回退(t *testing.T) {
 
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("分支 = %+v，错误 = %v", got, err)
+	}
+}
+
+type deadlineExecutor struct{}
+
+func (deadlineExecutor) Run(ctx context.Context, _ string, args ...string) (string, error) {
+	switch args[0] {
+	case "symbolic-ref":
+		return "main", nil
+	case "rev-parse":
+		return "origin/main", nil
+	case "rev-list":
+		return "1 1", nil
+	case "fetch":
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < time.Second {
+			return "", errors.New("请求没有合理的超时预算")
+		}
+	}
+	return "", nil
+}
+
+func Test_远程探测_为请求保留三秒预算(t *testing.T) {
+	cli := NewWithExecutor(deadlineExecutor{})
+	for _, tc := range []struct {
+		name  string
+		probe func(context.Context, string) bool
+	}{{"待同步", cli.HasPendingChanges}, {"远程更新", cli.HasRemoteUpdate}} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.probe(context.Background(), "仓库路径")
+
+			if !got {
+				t.Fatal("请求因超时预算错误而丢失更新")
+			}
+		})
 	}
 }

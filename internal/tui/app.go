@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -178,7 +180,7 @@ func New(cfg config.Config) *App {
 	wsKeys := sortedWorkspaceKeys(cfg.Global.Workspaces)
 	wsCounts := calcWorkspaceCounts(cfg.Global.Workspaces, wsKeys)
 	if cfg.WorkspaceMode && len(wsKeys) > 0 {
-		repos, _ := workspace.ScanReposWithDepth(cfg.WorkspaceRoot, cfg.WorkspaceDepth)
+		repos, _ := scanWorkspaceReposFn(cfg, nil)
 		wsCounts = map[string]int{wsKeys[0]: len(repos)}
 	}
 
@@ -211,10 +213,7 @@ func New(cfg config.Config) *App {
 		diffLeftOffset:     0,
 	}
 
-	limiterSize := cfg.Concurrency
-	if limiterSize < 1 {
-		limiterSize = 1
-	}
+	limiterSize := max(1, cfg.Concurrency)
 	app.refreshLimiter = make(chan struct{}, limiterSize)
 
 	sp := spinner.New()
@@ -230,9 +229,7 @@ func (a *App) Init() tea.Cmd {
 	if !a.cfg.WorkspaceMode {
 		cmds = append(cmds, configWatchTickCmd())
 	}
-	if len(a.workspaces) > 0 {
-		cmds = append(cmds, a.workspaceCheckCmd())
-	}
+	cmds = append(cmds, a.workspaceCheckCmd())
 	if a.cfg.WorkspaceMode && len(a.workspaces) > 0 {
 		cmds = append(cmds, a.refreshAllCmd())
 	}
@@ -243,12 +240,15 @@ func (a *App) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+var scheduleTick = tea.Tick
+var currentTime = time.Now
+
 func tickMsgFunc(t time.Time) tea.Msg {
 	return tickMsg(t)
 }
 
 func tickCmd(intervalSec int) tea.Cmd {
-	return tea.Tick(time.Duration(intervalSec)*time.Second, tickMsgFunc)
+	return scheduleTick(time.Duration(intervalSec)*time.Second, tickMsgFunc)
 }
 
 func configWatchTickMsgFunc(t time.Time) tea.Msg {
@@ -256,7 +256,7 @@ func configWatchTickMsgFunc(t time.Time) tea.Msg {
 }
 
 func configWatchTickCmd() tea.Cmd {
-	return tea.Tick(time.Duration(configWatchIntervalSec)*time.Second, configWatchTickMsgFunc)
+	return scheduleTick(time.Duration(configWatchIntervalSec)*time.Second, configWatchTickMsgFunc)
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -303,9 +303,7 @@ func (a *App) handleLifecycleMsg(msg tea.Msg) (tea.Cmd, bool) {
 
 func (a *App) handleTick() tea.Cmd {
 	cmds := []tea.Cmd{tickCmd(a.cfg.IntervalSec)}
-	if len(a.workspaces) > 0 {
-		cmds = append(cmds, a.workspaceCheckCmd())
-	}
+	cmds = append(cmds, a.workspaceCheckCmd())
 	if a.screen == screenHome && !a.loading {
 		cmds = append(cmds, a.refreshAllCmd())
 	}
@@ -324,14 +322,9 @@ func (a *App) handleConfigReloaded(m configReloadedMsg) tea.Cmd {
 	a.errText = ""
 
 	cmds := make([]tea.Cmd, 0, 2)
-	if len(a.workspaces) > 0 {
-		cmds = append(cmds, a.workspaceCheckCmd())
-	}
+	cmds = append(cmds, a.workspaceCheckCmd())
 	if a.screen != screenWorkspaces {
 		cmds = append(cmds, a.refreshAllCmd())
-	}
-	if len(cmds) == 0 {
-		return nil
 	}
 	return tea.Batch(cmds...)
 }
@@ -397,7 +390,7 @@ func (a *App) rebuildReposFromDirs(dirs []workspace.RepoDir) {
 		}
 		nextRepos = append(nextRepos, model.RepoStatus{Name: repo.Name, Path: repo.Path, Sync: model.SyncUnknown})
 	}
-	sort.Slice(nextRepos, func(i int, j int) bool { return nextRepos[i].Name < nextRepos[j].Name })
+	slices.SortFunc(nextRepos, func(a, b model.RepoStatus) int { return cmp.Compare(a.Name, b.Name) })
 	a.repos = nextRepos
 }
 
@@ -553,7 +546,7 @@ func (a *App) handleWorkspaceRefresh() (tea.Cmd, bool) {
 		a.startLoading = true
 		a.startPRErr = ""
 		a.startIssueErr = ""
-		a.startRefreshNoticeUntil = time.Now().Add(2 * time.Second)
+		a.startRefreshNoticeUntil = currentTime().Add(2 * time.Second)
 		return a.loadAccountRemoteCmd(), true
 	}
 	return nil, true
@@ -1010,19 +1003,20 @@ func (a *App) buildStartHelpText() string {
 
 func (a *App) buildWorkspaceCardsRows(columns int) []string {
 	rows := make([]string, 0)
-	for i := 0; i < len(a.workspaces); i += columns {
-		end := min(i+columns, len(a.workspaces))
-		cards := make([]string, 0, end-i)
-		for j := i; j < end; j++ {
-			cards = append(cards, a.renderWorkspaceCard(a.workspaces[j], j == a.selectedWsIndex))
+	index := 0
+	for group := range slices.Chunk(a.workspaces, columns) {
+		cards := make([]string, 0, len(group))
+		for _, repo := range group {
+			cards = append(cards, a.renderWorkspaceCard(repo, index == a.selectedWsIndex))
+			index++
 		}
 		if len(cards) == 1 {
 			rows = append(rows, cards[0])
 			continue
 		}
-		segments := make([]string, 0, len(cards)*2-1)
+		segments := make([]string, 0)
 		for idx, card := range cards {
-			if idx > 0 {
+			if idx != 0 {
 				segments = append(segments, strings.Repeat(" ", cardGap))
 			}
 			segments = append(segments, card)
@@ -1175,7 +1169,7 @@ func (a *App) appendStartRefreshHint(lines []string) []string {
 	if a.startLoading {
 		return append(lines, a.spinner.View()+" 刷新中...")
 	}
-	if time.Now().Before(a.startRefreshNoticeUntil) {
+	if currentTime().Before(a.startRefreshNoticeUntil) {
 		return append(lines, loadingStyle.Render("已触发刷新"))
 	}
 	return lines
@@ -1285,19 +1279,20 @@ func (a *App) buildHomeHelpText() string {
 
 func (a *App) buildRepoCardsRows(repos []model.RepoStatus, columns int) []string {
 	rows := make([]string, 0)
-	for i := 0; i < len(repos); i += columns {
-		end := min(i+columns, len(repos))
-		cards := make([]string, 0, end-i)
-		for j := i; j < end; j++ {
-			cards = append(cards, a.renderCard(repos[j], j == a.selectedIndex))
+	index := 0
+	for group := range slices.Chunk(repos, columns) {
+		cards := make([]string, 0, len(group))
+		for _, repo := range group {
+			cards = append(cards, a.renderCard(repo, index == a.selectedIndex))
+			index++
 		}
 		if len(cards) == 1 {
 			rows = append(rows, cards[0])
 			continue
 		}
-		segments := make([]string, 0, len(cards)*2-1)
+		segments := make([]string, 0)
 		for idx, card := range cards {
-			if idx > 0 {
+			if idx != 0 {
 				segments = append(segments, strings.Repeat(" ", cardGap))
 			}
 			segments = append(segments, card)
@@ -1477,26 +1472,16 @@ func (a *App) viewDetail() string {
 }
 
 func calculateScrollWindow(itemCount, selectedIdx, height int) (int, int) {
-	if itemCount <= height {
-		return 0, itemCount
-	}
-	start := selectedIdx - height/2
-	if start < 0 {
-		start = 0
-	}
-	if start+height > itemCount {
-		start = itemCount - height
-	}
+	height = min(itemCount, height)
+	start := clamp(selectedIdx-height/2, 0, itemCount-height)
 	return start, start + height
 }
 
 func (a *App) calculateDiffPanelDimensions() (int, int, int) {
 	leftWidth := max(25, a.width*3/10)
 	rightWidth := a.width - leftWidth - 4
-	if rightWidth < 40 {
-		rightWidth = 40
-		leftWidth = max(25, a.width-rightWidth-4)
-	}
+	rightWidth = max(40, rightWidth)
+	leftWidth = max(25, a.width-rightWidth-4)
 	contentHeight := max(3, a.height-4)
 	return leftWidth, rightWidth, contentHeight
 }
@@ -1580,56 +1565,36 @@ func maxIssueNumberWidthAccount(items []model.AccountIssueItem) int {
 	maxW := lipgloss.Width("ID")
 	for _, it := range items {
 		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
-		if w > maxW {
-			maxW = w
-		}
+		maxW = max(maxW, w)
 	}
-	if maxW < 4 {
-		maxW = 4
-	}
-	return maxW
+	return max(4, maxW)
 }
 
 func maxIssueNumberWidthDetail(items []model.IssueItem) int {
 	maxW := lipgloss.Width("ID")
 	for _, it := range items {
 		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
-		if w > maxW {
-			maxW = w
-		}
+		maxW = max(maxW, w)
 	}
-	if maxW < 4 {
-		maxW = 4
-	}
-	return maxW
+	return max(4, maxW)
 }
 
 func maxPRNumberWidthAccount(items []model.AccountPullRequestItem) int {
 	maxW := lipgloss.Width("ID")
 	for _, it := range items {
 		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
-		if w > maxW {
-			maxW = w
-		}
+		maxW = max(maxW, w)
 	}
-	if maxW < 4 {
-		maxW = 4
-	}
-	return maxW
+	return max(4, maxW)
 }
 
 func maxPRNumberWidthDetail(items []model.PullRequestItem) int {
 	maxW := lipgloss.Width("ID")
 	for _, it := range items {
 		w := lipgloss.Width(fmt.Sprintf("#%d", it.Number))
-		if w > maxW {
-			maxW = w
-		}
+		maxW = max(maxW, w)
 	}
-	if maxW < 4 {
-		maxW = 4
-	}
-	return maxW
+	return max(4, maxW)
 }
 
 func issueTableHeader(totalWidth int, idWidth int) string {
@@ -1656,7 +1621,7 @@ func issueTableRow(totalWidth int, idWidth int, number int, title string, labels
 		fmt.Sprintf("#%d", number),
 		title,
 		labelText,
-		formatRelativeTime(updatedAt, time.Now()),
+		formatRelativeTime(updatedAt, currentTime()),
 	)
 }
 
@@ -1670,7 +1635,7 @@ func prTableRow(totalWidth int, idWidth int, number int, title string, labels st
 		fmt.Sprintf("#%d", number),
 		title,
 		labels,
-		formatRelativeTime(updatedAt, time.Now()),
+		formatRelativeTime(updatedAt, currentTime()),
 	)
 }
 
@@ -1699,9 +1664,7 @@ func renderTableHeaderLine(line string) string {
 }
 
 func issueTableColumnWidths(totalWidth int, idWidth int) (titleWidth int, labelsWidth int, updatedWidth int) {
-	if totalWidth < 40 {
-		totalWidth = 40
-	}
+	totalWidth = max(40, totalWidth)
 	labelsWidth = 12
 	updatedWidth = 20
 	gapTotal := 6 // 3 gaps * 2 spaces
@@ -1711,18 +1674,15 @@ func issueTableColumnWidths(totalWidth int, idWidth int) (titleWidth int, labels
 	minLabels := 8
 	minUpdated := 16
 
-	if titleWidth < minTitle {
-		deficit := minTitle - titleWidth
-		shift := min(deficit, labelsWidth-minLabels)
-		labelsWidth -= shift
-		deficit -= shift
-		shift = min(deficit, updatedWidth-minUpdated)
-		updatedWidth -= shift
-		titleWidth = totalWidth - idWidth - labelsWidth - updatedWidth - gapTotal
-	}
-	if titleWidth < 10 {
-		titleWidth = 10
-	}
+	deficit := max(0, minTitle-titleWidth)
+	shift := min(deficit, labelsWidth-minLabels)
+	labelsWidth -= shift
+	deficit -= shift
+	shift = min(deficit, updatedWidth-minUpdated)
+	updatedWidth -= shift
+	titleWidth = totalWidth - idWidth - labelsWidth - updatedWidth - gapTotal
+
+	titleWidth = max(10, titleWidth)
 
 	return titleWidth, labelsWidth, updatedWidth
 }
@@ -1735,15 +1695,9 @@ func formatIssueTableRow(idWidth int, titleWidth int, labelsWidth int, updatedWi
 }
 
 func formatIssueCell(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
 	truncated := truncateWithEllipsis(strings.TrimSpace(s), width)
 	pad := width - lipgloss.Width(truncated)
-	if pad <= 0 {
-		return truncated
-	}
-	return truncated + strings.Repeat(" ", pad)
+	return truncated + strings.Repeat(" ", max(0, pad))
 }
 
 func truncateWithEllipsis(s string, maxWidth int) string {
@@ -1779,24 +1733,23 @@ func formatRelativeTime(t time.Time, now time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	d := now.Sub(t)
-	if d < 0 {
-		d = -d
-	}
-	switch {
-	case d < time.Minute:
+	d := now.Sub(t).Abs()
+	if d < time.Minute {
 		return "just now"
-	case d < time.Hour:
-		return formatPlural(int(d/time.Minute), "minute")
-	case d < 24*time.Hour:
-		return formatPlural(int(d/time.Hour), "hour")
-	case d < 30*24*time.Hour:
-		return formatPlural(int(d/(24*time.Hour)), "day")
-	case d < 365*24*time.Hour:
-		return formatPlural(int(d/(30*24*time.Hour)), "month")
-	default:
-		return formatPlural(int(d/(365*24*time.Hour)), "year")
 	}
+	if d < time.Hour {
+		return formatPlural(int(d/time.Minute), "minute")
+	}
+	if d < 24*time.Hour {
+		return formatPlural(int(d/time.Hour), "hour")
+	}
+	if d < 30*24*time.Hour {
+		return formatPlural(int(d/(24*time.Hour)), "day")
+	}
+	if d < 365*24*time.Hour {
+		return formatPlural(int(d/(30*24*time.Hour)), "month")
+	}
+	return formatPlural(int(d/(365*24*time.Hour)), "year")
 }
 
 // viewDiffSimple renders a simple single-panel diff view for small screens
@@ -1807,21 +1760,10 @@ func (a *App) viewDiffSimple() string {
 	headerLines := []string{header}
 
 	// 动态调整 viewport 高度
-	vHeight := a.height - len(headerLines) - 1
-	if vHeight < 0 {
-		vHeight = 0
-	}
-	if a.diffViewport.Height != vHeight {
-		a.diffViewport.Height = vHeight
-	}
+	vHeight := max(0, a.height-len(headerLines)-1)
+	a.diffViewport.Height = vHeight
 
-	bodyLines := append([]string{}, headerLines...)
-	if vHeight > 0 {
-		content := a.diffViewport.View()
-		if content != "" {
-			bodyLines = append(bodyLines, strings.Split(content, "\n")...)
-		}
-	}
+	bodyLines := append(headerLines, strings.Split(a.diffViewport.View(), "\n")...)
 	return composeWithFooter(a.height, bodyLines, help)
 }
 
@@ -1840,20 +1782,14 @@ func findSelectedFileLine(treeLines []treeLine, diffFileIdx int) int {
 }
 
 func (a *App) renderVisibleTreeLines(treeLines []treeLine, offset, height, width int) string {
-	end := offset + height
-	if end > len(treeLines) {
-		end = len(treeLines)
+	end := min(offset+height, len(treeLines))
+	lines := make([]string, max(0, height))
+	for i := range lines {
+		lines[i] = strings.Repeat(" ", width)
 	}
-
-	var lines []string
 	for i := offset; i < end; i++ {
-		lines = append(lines, a.renderTreeLine(treeLines[i], width))
+		lines[i-offset] = a.renderTreeLine(treeLines[i], width)
 	}
-
-	for len(lines) < height {
-		lines = append(lines, strings.Repeat(" ", width))
-	}
-
 	return strings.Join(lines, "\n")
 }
 
@@ -1874,13 +1810,7 @@ func (a *App) renderFileTree(width, height int) string {
 }
 
 func calculateFileTreeOffset(currentOffset, totalLines, height, selectedLineIdx int) int {
-	if totalLines <= height {
-		return 0
-	}
-	threshold := height / 3
-	if threshold < 1 {
-		threshold = 1
-	}
+	threshold := max(1, height/3)
 
 	offset := currentOffset
 	if selectedLineIdx < offset+threshold {
@@ -1889,13 +1819,7 @@ func calculateFileTreeOffset(currentOffset, totalLines, height, selectedLineIdx 
 		offset = selectedLineIdx - height + threshold + 1
 	}
 
-	if offset+height > totalLines {
-		offset = totalLines - height
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	return offset
+	return clamp(offset, 0, max(0, totalLines-height))
 }
 
 // treeLine represents a line in the file tree
@@ -1947,7 +1871,7 @@ func renderDirTreeLine(indentStr, name string, width int) string {
 	plainText := indentStr + "📂 " + name + "/"
 	if lipgloss.Width(plainText) > width {
 		maxNameLen := width - len(indentStr) - 4
-		if maxNameLen > 0 && len(name) > maxNameLen {
+		if maxNameLen > 0 {
 			plainText = indentStr + "📂 " + name[:maxNameLen-1] + "…/"
 		}
 	}
@@ -1966,7 +1890,7 @@ func renderFileDiffTreeLine(tl treeLine, width int, isSelected, focusLeft bool) 
 
 	if lipgloss.Width(line) > width {
 		availableForName := width - lipgloss.Width(indentStr+" ") - lipgloss.Width(statsStr) - lipgloss.Width("+ ")
-		if availableForName > 3 && len(tl.name) > availableForName {
+		if availableForName > 3 {
 			truncatedName := tl.name[:availableForName-1] + "…"
 			line = indentStr + " " + statusIcon + " " + truncatedName
 			if statsStr != "" {
@@ -2020,14 +1944,8 @@ func composeWithFooter(height int, bodyLines []string, footer string) string {
 	for _, line := range bodyLines {
 		flattened = append(flattened, strings.Split(line, "\n")...)
 	}
-	if len(flattened) > maxBodyLines {
-		flattened = flattened[:maxBodyLines]
-	}
-	for len(flattened) < maxBodyLines {
-		flattened = append(flattened, "")
-	}
-
-	lines := append([]string{}, flattened...)
+	lines := make([]string, maxBodyLines)
+	copy(lines, flattened)
 	lines = append(lines, styledFooter)
 	return strings.Join(lines, "\n")
 }
@@ -2287,9 +2205,7 @@ func (a *App) filteredRepos() []model.RepoStatus {
 			out = append(out, r)
 		}
 	}
-	if a.selectedIndex >= len(out) {
-		a.selectedIndex = max(0, len(out)-1)
-	}
+	a.selectedIndex = min(a.selectedIndex, max(0, len(out)-1))
 	return out
 }
 
@@ -2320,14 +2236,11 @@ func (a *App) workspaceCheckOneCmd(wsName string, paths []string) tea.Cmd {
 		}
 
 		// For performance, only sample up to 3 repos per workspace.
-		maxCheck := 3
-		if len(repos) < maxCheck {
-			maxCheck = len(repos)
-		}
+		maxCheck := min(3, len(repos))
 
 		updateFound := false
-		for i := 0; i < maxCheck; i++ {
-			if a.git.HasRemoteUpdate(ctx, repos[i].Path) {
+		for _, repo := range repos[:maxCheck] {
+			if a.git.HasRemoteUpdate(ctx, repo.Path) {
 				updateFound = true
 				break
 			}
@@ -2384,12 +2297,7 @@ func (a *App) reconcileWorkspaceRuntimeState(selectedName string) {
 			}
 		}
 	}
-	if a.selectedWsIndex >= len(a.workspaces) {
-		a.selectedWsIndex = len(a.workspaces) - 1
-	}
-	if a.selectedWsIndex < 0 {
-		a.selectedWsIndex = 0
-	}
+	a.selectedWsIndex = clamp(a.selectedWsIndex, 0, len(a.workspaces)-1)
 }
 
 func sortedWorkspaceKeys(ws config.WorkspaceMap) []string {
@@ -2421,9 +2329,7 @@ func (a *App) recomputeGrid() {
 			a.selectedWsIndex = 0
 			return
 		}
-		if a.selectedWsIndex >= len(a.workspaces) {
-			a.selectedWsIndex = len(a.workspaces) - 1
-		}
+		a.selectedWsIndex = min(a.selectedWsIndex, len(a.workspaces)-1)
 		return
 	}
 
@@ -2432,9 +2338,7 @@ func (a *App) recomputeGrid() {
 		a.selectedIndex = 0
 		return
 	}
-	if a.selectedIndex >= len(filtered) {
-		a.selectedIndex = len(filtered) - 1
-	}
+	a.selectedIndex = min(a.selectedIndex, len(filtered)-1)
 }
 
 func (a *App) setSearch(term string) {
@@ -2493,7 +2397,7 @@ func (a *App) pullCurrentCmd() tea.Cmd {
 
 func (a *App) pullAllCmd() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 
 		completed := 0
@@ -2534,11 +2438,4 @@ func lazygitDoneFunc(err error) tea.Msg {
 
 type lazygitDoneMsg struct {
 	err error
-}
-
-func max(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

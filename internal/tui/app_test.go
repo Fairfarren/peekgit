@@ -154,3 +154,100 @@ func TestFormatRelativeTime(t *testing.T) {
 		t.Errorf("got %q, want about 2 years ago", got)
 	}
 }
+
+func Test_相对时间_跨单位边界与未来时间(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name   string
+		offset time.Duration
+		want   string
+	}{
+		{"整月", -30 * 24 * time.Hour, "about 1 month ago"},
+		{"整年", -365 * 24 * time.Hour, "about 1 year ago"},
+		{"未来五分钟", 5 * time.Minute, "about 5 minutes ago"},
+		{"恰好现在", 0, "just now"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatRelativeTime(now.Add(tc.offset), now)
+
+			if got != tc.want {
+				t.Fatalf("相对时间 = %q，期望 %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func Test_文件树滚动_上下边界和缓冲行(t *testing.T) {
+	for _, tc := range []struct {
+		name                                  string
+		offset, total, height, selected, want int
+	}{
+		{"顶部缓冲边界", 5, 30, 9, 8, 5}, {"顶部缓冲内", 5, 30, 9, 7, 4},
+		{"底部缓冲边界", 5, 30, 9, 11, 6}, {"底部缓冲前", 5, 30, 9, 10, 5},
+		{"向后滚动", 0, 30, 9, 15, 10}, {"末页", 20, 30, 9, 29, 21},
+		{"刚好一页", 5, 9, 9, 4, 0}, {"首行", 5, 30, 9, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := calculateFileTreeOffset(tc.offset, tc.total, tc.height, tc.selected)
+
+			if got != tc.want {
+				t.Fatalf("滚动偏移 = %d，期望 %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func Test_表格宽度_逐步压缩辅助列(t *testing.T) {
+	for _, tc := range []struct {
+		name                              string
+		width, id, title, labels, updated int
+	}{
+		{"完整", 62, 4, 20, 12, 20}, {"缩标签", 60, 4, 20, 10, 20}, {"再缩时间", 56, 4, 20, 8, 18},
+		{"最窄", 40, 4, 10, 8, 16}, {"大编号", 64, 8, 20, 10, 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			title, labels, updated := issueTableColumnWidths(tc.width, tc.id)
+
+			if title != tc.title || labels != tc.labels || updated != tc.updated {
+				t.Fatalf("列宽 = %d/%d/%d", title, labels, updated)
+			}
+		})
+	}
+}
+
+func Test_单元格_零宽度不显示(t *testing.T) {
+	got := formatIssueCell("文本", 0)
+
+	if got != "" {
+		t.Fatalf("零宽度单元格 = %q", got)
+	}
+}
+
+func Test_单行文件树_选择越过缓冲区时滚动(t *testing.T) {
+	got := calculateFileTreeOffset(5, 30, 1, 6)
+
+	if got != 7 {
+		t.Fatalf("单行偏移 = %d，期望 7", got)
+	}
+}
+
+func Test_文件树名称_恰好容纳与最小截断空间(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func() string
+		want string
+	}{
+		{"目录恰好容纳", func() string { return renderDirTreeLine("", "中文", 8) }, "📂 中文/"},
+		{"目录无截断空间", func() string { return renderDirTreeLine("", "abcdef", 4) }, "📂 abcdef/"},
+		{"文件恰好容纳", func() string { return renderFileDiffTreeLine(treeLine{name: "中文"}, 7, false, false) }, " ~ 中文"},
+		{"文件只有三字空间", func() string { return renderFileDiffTreeLine(treeLine{name: "abcdef"}, 6, false, false) }, " ~ abcdef"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.run()
+
+			if got != tc.want {
+				t.Fatalf("名称 = %q，期望 %q", got, tc.want)
+			}
+		})
+	}
+}

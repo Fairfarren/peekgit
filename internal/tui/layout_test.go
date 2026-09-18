@@ -77,3 +77,37 @@ func TestClamp(t *testing.T) {
 		t.Errorf("clamp(10, 0, 10) = %d, want 10", got)
 	}
 }
+
+func Test_列布局_边界尺寸与间距(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		width, min, gap, want int
+	}{
+		{"零宽度", 0, -2, 3, 1}, {"间距加入总宽", 90, 44, 2, 2}, {"间距加入卡片宽", 100, 44, 8, 2},
+		{"负宽度", -1, 10, 2, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := computeColumns(tc.width, tc.min, tc.gap)
+
+			if got != tc.want {
+				t.Fatalf("列数 = %d，期望 %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func Test_卡片宽度_多列间距只计列间(t *testing.T) {
+	got := computeCardWidth(120, 3, 6)
+
+	if got != 36 {
+		t.Fatalf("卡片宽度 = %d，期望 36", got)
+	}
+}
+
+func Test_越界索引导航_从最后一项恢复(t *testing.T) {
+	got := moveIndex(20, 5, 2, "left")
+
+	if got != 3 {
+		t.Fatalf("索引 = %d，期望 3", got)
+	}
+}

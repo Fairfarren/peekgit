@@ -144,3 +144,13 @@ func TestParseDiffEmptyAndGetFileByIndexMissing(t *testing.T) {
 		t.Fatalf("expected nil when file in FileList is missing from Files")
 	}
 }
+
+func Test_按索引读取文件_首项有效负数无效(t *testing.T) {
+	tree := BuildDiffTree([]FileDiff{{Path: "a.go", Content: "首项内容"}})
+
+	got := tree.GetFileByIndex(0)
+
+	if got == nil || got.Content != "首项内容" {
+		t.Fatalf("首项文件 = %+v", got)
+	}
+}

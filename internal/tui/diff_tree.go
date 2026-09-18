@@ -1,8 +1,9 @@
 package tui
 
 import (
+	"cmp"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -231,12 +232,14 @@ func sortTree(node *DiffNode) {
 		return
 	}
 
-	sort.Slice(node.Children, func(i, j int) bool {
-		// Directories come first
-		if node.Children[i].IsDir != node.Children[j].IsDir {
-			return node.Children[i].IsDir
+	slices.SortFunc(node.Children, func(a, b *DiffNode) int {
+		if a.IsDir != b.IsDir {
+			if a.IsDir {
+				return -1
+			}
+			return 1
 		}
-		return node.Children[i].Name < node.Children[j].Name
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	for _, child := range node.Children {
