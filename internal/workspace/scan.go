@@ -1,9 +1,10 @@
 package workspace
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -17,16 +18,14 @@ func ScanRepos(configuredPaths []string) ([]RepoDir, error) {
 }
 
 func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
-	if depth <= 0 {
-		depth = 0
-	}
+	depth = max(depth, 0)
 	absRoot, _ := filepath.Abs(root)
 
 	repos := make([]RepoDir, 0)
 	seen := make(map[string]struct{})
 
 	walkDirectory(absRoot, depth, 0, seen, &repos)
-	sort.Slice(repos, func(i, j int) bool { return repos[i].Path < repos[j].Path })
+	slices.SortFunc(repos, func(a, b RepoDir) int { return cmp.Compare(a.Path, b.Path) })
 	return repos, nil
 }
 
@@ -74,9 +73,7 @@ func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 	repos := make([]RepoDir, 0, len(paths))
 	for _, p := range paths {
 		if expanded, handled := expandIfWildcard(p); handled {
-			if len(expanded) > 0 {
-				repos = append(repos, expanded...)
-			}
+			repos = append(repos, expanded...)
 			continue
 		}
 

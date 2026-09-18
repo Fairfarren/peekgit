@@ -404,8 +404,14 @@ func TestNewWithToken(t *testing.T) {
 }
 
 func TestListPRFilesSuccess(t *testing.T) {
+	remaining := 1
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/repos/o/r/pulls/1/files", func(w http.ResponseWriter, r *http.Request) {
+		if remaining == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		remaining--
 		_, _ = w.Write([]byte(`[{"filename":"a.txt","status":"modified","additions":2,"deletions":1}]`))
 	})
 	srv := httptest.NewServer(mux)
@@ -638,8 +644,14 @@ func TestDefaultRunGhAuthTokenError(t *testing.T) {
 }
 
 func TestListPRFilesPagination(t *testing.T) {
+	remaining := 2
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/repos/o/r/pulls/1/files", func(w http.ResponseWriter, r *http.Request) {
+		if remaining == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		remaining--
 		page := r.URL.Query().Get("page")
 		if page == "2" {
 			_, _ = w.Write([]byte(`[{"filename":"b.txt"}]`))

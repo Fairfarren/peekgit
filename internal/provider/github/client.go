@@ -62,12 +62,12 @@ func NewWithClient(ghc *gh.Client) *Client {
 	return &Client{
 		client:       ghc,
 		auth:         true,
-		prCache:      cache.NewTTLCache[[]model.PullRequestItem](60 * time.Second),
-		issueCache:   cache.NewTTLCache[[]model.IssueItem](60 * time.Second),
-		diffCache:    cache.NewTTLCache[string](60 * time.Second),
-		myPRCache:    cache.NewTTLCache[[]model.AccountPullRequestItem](60 * time.Second),
-		myIssueCache: cache.NewTTLCache[[]model.AccountIssueItem](60 * time.Second),
-		viewerCache:  cache.NewTTLCache[string](60 * time.Second),
+		prCache:      cache.NewTTLCache[[]model.PullRequestItem](time.Minute),
+		issueCache:   cache.NewTTLCache[[]model.IssueItem](time.Minute),
+		diffCache:    cache.NewTTLCache[string](time.Minute),
+		myPRCache:    cache.NewTTLCache[[]model.AccountPullRequestItem](time.Minute),
+		myIssueCache: cache.NewTTLCache[[]model.AccountIssueItem](time.Minute),
+		viewerCache:  cache.NewTTLCache[string](time.Minute),
 	}
 }
 
@@ -254,7 +254,7 @@ func (c *Client) ListMyIssues(ctx context.Context) ([]model.AccountIssueItem, er
 		return nil, err
 	}
 
-	merged := make(map[string]model.AccountIssueItem, len(authorIssues)+len(assigneeIssues))
+	merged := make(map[string]model.AccountIssueItem)
 	for _, it := range authorIssues {
 		collectIssue(merged, it, login)
 	}

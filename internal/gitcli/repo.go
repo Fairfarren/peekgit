@@ -24,6 +24,10 @@ func New() *CLI { return &CLI{exec: osExecutor{}} }
 
 func NewWithExecutor(ex Executor) *CLI { return &CLI{exec: ex} }
 
+const fetchTimeout = 3 * time.Second
+
+var runGitCommand = (*exec.Cmd).Run
+
 type osExecutor struct{}
 
 func (o osExecutor) Run(ctx context.Context, dir string, args ...string) (string, error) {
@@ -33,7 +37,7 @@ func (o osExecutor) Run(ctx context.Context, dir string, args ...string) (string
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := runGitCommand(cmd); err != nil {
 		if stderr.Len() > 0 {
 			return "", errors.New(strings.TrimSpace(stderr.String()))
 		}
@@ -263,7 +267,7 @@ func (c *CLI) HasPendingChanges(ctx context.Context, repoPath string) bool {
 	}
 
 	// Quick fetch to get remote info (with short timeout to be lightweight)
-	fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	if _, err := c.exec.Run(fetchCtx, repoPath, "fetch", "origin", "--quiet"); err != nil {
 		// Fetch failed, can't determine ahead/behind
@@ -292,7 +296,7 @@ func (c *CLI) HasRemoteUpdate(ctx context.Context, repoPath string) bool {
 	}
 
 	// Quick fetch to get remote info (with short timeout to be lightweight)
-	fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	if _, err := c.exec.Run(fetchCtx, repoPath, "fetch", "origin", "--quiet"); err != nil {
 		// Fetch failed, can't determine behind

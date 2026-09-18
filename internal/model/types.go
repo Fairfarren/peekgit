@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 type SyncState int
 
@@ -108,21 +111,5 @@ func SyncSymbol(state SyncState, ahead int, behind int) string {
 }
 
 func itoa(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	neg := v < 0
-	if neg {
-		v = -v
-	}
-	b := make([]byte, 0, 11)
-	for v > 0 {
-		d := v % 10
-		b = append([]byte{byte('0' + d)}, b...)
-		v /= 10
-	}
-	if neg {
-		b = append([]byte{'-'}, b...)
-	}
-	return string(b)
+	return strconv.Itoa(v)
 }
