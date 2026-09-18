@@ -51,26 +51,6 @@ func TestWorkspaceNavigationCompletesEmptyAccountLoad(t *testing.T) {
 	}
 }
 
-func TestBrowserCommandResult(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-	}{{"成功", nil}, {"失败", errors.New("浏览器启动失败")}}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			original := runBrowserCommand
-			t.Cleanup(func() { runBrowserCommand = original })
-			runBrowserCommand = func(*exec.Cmd) error { return tc.err }
-
-			err := openBrowser("https://example.com")
-
-			if !errors.Is(err, tc.err) {
-				t.Fatalf("未传递浏览器执行结果: %v", err)
-			}
-		})
-	}
-}
-
 func Test_浏览器命令_传递目标且保留启动失败(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

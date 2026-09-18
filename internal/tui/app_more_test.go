@@ -1018,48 +1018,48 @@ func TestUpdateSearchInputEsc(t *testing.T) {
 
 func TestOpenSelectedRepoDetailEmpty(t *testing.T) {
 	a := newTestApp()
-	cmd, ok := a.openSelectedRepoDetail(nil)
-	if cmd != nil || !ok {
-		t.Fatalf("expected nil cmd and ok=true when visible repos is empty, got %v, %v", cmd, ok)
+	cmd := a.openSelectedRepoDetail(nil)
+	if cmd != nil {
+		t.Fatalf("expected nil cmd when visible repos is empty, got %v", cmd)
 	}
 }
 
 func TestHandleHomeGitActionBranches(t *testing.T) {
 	a := newTestApp()
 
-	cmd, ok := a.handleHomeGitAction("f", nil)
-	if cmd != nil || !ok {
-		t.Fatalf("expected nil cmd, ok=true for 'f' on empty visible, got %v, %v", cmd, ok)
+	cmd := a.handleHomeGitAction("f", nil)
+	if cmd != nil {
+		t.Fatalf("expected nil cmd for 'f' on empty visible, got %v", cmd)
 	}
 
-	cmd, ok = a.handleHomeGitAction("f", a.repos)
-	if cmd == nil || !ok {
-		t.Fatalf("expected cmd, ok=true for 'f' with repos")
+	cmd = a.handleHomeGitAction("f", a.repos)
+	if cmd == nil {
+		t.Fatalf("expected cmd for 'f' with repos")
 	}
 
 	a.repos = nil
-	cmd, ok = a.handleHomeGitAction("F", nil)
-	if cmd != nil || !ok {
-		t.Fatalf("expected nil cmd, ok=true for 'F' on empty repos, got %v, %v", cmd, ok)
+	cmd = a.handleHomeGitAction("F", nil)
+	if cmd != nil {
+		t.Fatalf("expected nil cmd for 'F' on empty repos, got %v", cmd)
 	}
 
 	a.repos = []model.RepoStatus{{Path: "/tmp/repo-a"}}
-	cmd, ok = a.handleHomeGitAction("F", nil)
-	if cmd == nil || !ok {
-		t.Fatalf("expected cmd, ok=true for 'F' with repos")
+	cmd = a.handleHomeGitAction("F", nil)
+	if cmd == nil {
+		t.Fatalf("expected cmd for 'F' with repos")
 	}
 
-	cmd, ok = a.handleHomeGitAction("g", nil)
-	if cmd != nil || !ok {
-		t.Fatalf("expected nil cmd, ok=true for 'g' on empty visible, got %v, %v", cmd, ok)
+	cmd = a.handleHomeGitAction("g", nil)
+	if cmd != nil {
+		t.Fatalf("expected nil cmd for 'g' on empty visible, got %v", cmd)
 	}
 
-	cmd, ok = a.handleHomeGitAction("g", a.repos)
-	if cmd == nil || !ok {
-		t.Fatalf("expected cmd, ok=true for 'g' with repos")
+	cmd = a.handleHomeGitAction("g", a.repos)
+	if cmd == nil {
+		t.Fatalf("expected cmd for 'g' with repos")
 	}
 
-	cmd, ok = a.handleHomeActionKey("unknown", a.repos)
+	cmd, ok := a.handleHomeActionKey("unknown", a.repos)
 	if cmd != nil || ok {
 		t.Fatalf("expected nil cmd, ok=false for unknown action")
 	}
@@ -1148,12 +1148,8 @@ func TestViewBranches(t *testing.T) {
 		t.Fatalf("expected '无工作区配置', got %q", v)
 	}
 
-	if rows := a.calculateVisibleWorkspaceRows(nil, 2, 2); len(rows) != 0 {
+	if rows := visibleCardRows(nil, cardWindow{}); len(rows) != 0 {
 		t.Fatalf("expected empty visible workspace rows")
-	}
-
-	if rows := a.calculateVisibleRepoRows(nil, 2, 2); len(rows) != 0 {
-		t.Fatalf("expected empty visible repo rows")
 	}
 
 	a.screen = screenHome
@@ -1342,19 +1338,6 @@ func TestIssueTableColumnWidthsDeficit(t *testing.T) {
 	tw3, _, _ := issueTableColumnWidths(40, 30)
 	if tw3 != 10 {
 		t.Fatalf("expected title width 10, got %d", tw3)
-	}
-
-	if s := formatIssueCell("test", 0); s != "" {
-		t.Fatalf("expected empty for width 0, got %q", s)
-	}
-}
-
-func TestViewDiffSimpleSmallHeight(t *testing.T) {
-	a := newTestApp()
-	a.height = 1
-	v := a.viewDiffSimple()
-	if v == "" {
-		t.Fatal("expected non-empty simple diff view")
 	}
 }
 

@@ -541,15 +541,15 @@ func (a *App) canRefreshAccountRemote() bool {
 	return (a.startTab == startTabPR || a.startTab == startTabIssue) && a.gh.Authenticated()
 }
 
-func (a *App) handleWorkspaceRefresh() (tea.Cmd, bool) {
+func (a *App) handleWorkspaceRefresh() tea.Cmd {
 	if a.canRefreshAccountRemote() {
 		a.startLoading = true
 		a.startPRErr = ""
 		a.startIssueErr = ""
 		a.startRefreshNoticeUntil = currentTime().Add(2 * time.Second)
-		return a.loadAccountRemoteCmd(), true
+		return a.loadAccountRemoteCmd()
 	}
-	return nil, true
+	return nil
 }
 
 func (a *App) handleWorkspaceTabKey(key string) (tea.Cmd, bool) {
@@ -563,7 +563,7 @@ func (a *App) handleWorkspaceTabKey(key string) (tea.Cmd, bool) {
 	case "3":
 		return a.switchStartTab(startTabIssue), true
 	case "r":
-		return a.handleWorkspaceRefresh()
+		return a.handleWorkspaceRefresh(), true
 	}
 	return nil, false
 }
@@ -734,40 +734,40 @@ func (a *App) handleHomeNavKey(key string, total int) bool {
 	return false
 }
 
-func (a *App) openSelectedRepoDetail(visible []model.RepoStatus) (tea.Cmd, bool) {
+func (a *App) openSelectedRepoDetail(visible []model.RepoStatus) tea.Cmd {
 	if len(visible) == 0 {
-		return nil, true
+		return nil
 	}
 	a.screen = screenDetail
 	a.detailTab = tabPR
 	a.detailPRIdx = 0
 	a.detailISIdx = 0
 	a.remoteErr = ""
-	return a.loadRemoteCmd(visible[a.selectedIndex]), true
+	return a.loadRemoteCmd(visible[a.selectedIndex])
 }
 
-func (a *App) handleHomeGitAction(key string, visible []model.RepoStatus) (tea.Cmd, bool) {
+func (a *App) handleHomeGitAction(key string, visible []model.RepoStatus) tea.Cmd {
 	switch key {
 	case "f":
 		if len(visible) > 0 {
 			repo := visible[a.selectedIndex]
 			a.repoRefreshing[repo.Path] = true
-			return a.pullCurrentCmd(), true
+			return a.pullCurrentCmd()
 		}
 	case "F":
 		if len(a.repos) > 0 {
 			for _, repo := range a.repos {
 				a.repoRefreshing[repo.Path] = true
 			}
-			return a.pullAllCmd(), true
+			return a.pullAllCmd()
 		}
 	case "g":
 		if len(visible) > 0 {
 			repo := visible[a.selectedIndex]
-			return a.runLazygitCmd(repo.Path), true
+			return a.runLazygitCmd(repo.Path)
 		}
 	}
-	return nil, true
+	return nil
 }
 
 func (a *App) handleHomeActionKey(key string, visible []model.RepoStatus) (tea.Cmd, bool) {
@@ -779,9 +779,9 @@ func (a *App) handleHomeActionKey(key string, visible []model.RepoStatus) (tea.C
 		a.filterMode = true
 		return nil, true
 	case " ", "enter":
-		return a.openSelectedRepoDetail(visible)
+		return a.openSelectedRepoDetail(visible), true
 	case "f", "F", "g":
-		return a.handleHomeGitAction(key, visible)
+		return a.handleHomeGitAction(key, visible), true
 	}
 	return nil, false
 }
@@ -871,30 +871,30 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleDiffGlobalKey(key string, isSimpleMode bool) (tea.Model, tea.Cmd, bool) {
+func (a *App) handleDiffGlobalKey(key string, isSimpleMode bool) bool {
 	switch key {
 	case "q":
 		a.screen = a.diffSourceScreen
-		return a, nil, true
+		return true
 	case "tab":
 		if !isSimpleMode {
 			a.diffFocusLeft = !a.diffFocusLeft
 		}
-		return a, nil, true
+		return true
 	case "right":
 		a.diffFocusLeft = false
-		return a, nil, true
+		return true
 	case "left":
 		a.diffFocusLeft = true
-		return a, nil, true
+		return true
 	case "ctrl+u":
 		a.diffViewport.LineUp(1)
-		return a, nil, true
+		return true
 	case "ctrl+d":
 		a.diffViewport.LineDown(1)
-		return a, nil, true
+		return true
 	}
-	return a, nil, false
+	return false
 }
 
 func (a *App) handleDiffLeftPanelKey(key string) {
@@ -917,8 +917,8 @@ func (a *App) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	isSimpleMode := a.height < 10 || a.width < 69
 
-	if model, cmd, handled := a.handleDiffGlobalKey(key, isSimpleMode); handled {
-		return model, cmd
+	if a.handleDiffGlobalKey(key, isSimpleMode) {
+		return a, nil
 	}
 
 	if isSimpleMode || !a.diffFocusLeft {
@@ -1026,18 +1026,21 @@ func (a *App) buildWorkspaceCardsRows(columns int) []string {
 	return rows
 }
 
-func (a *App) calculateVisibleWorkspaceRows(rows []string, headerCount, columns int) []string {
+type cardWindow struct {
+	height      int
+	selectedRow int
+}
+
+func visibleCardRows(rows []string, window cardWindow) []string {
 	if len(rows) == 0 {
 		return []string{}
 	}
 	rowHeight := max(1, lipgloss.Height(rows[0]))
-	availableHeight := a.height - headerCount - 2
-	displayRows := max(0, availableHeight/rowHeight)
+	displayRows := max(0, window.height/rowHeight)
 	if displayRows == 0 {
 		return []string{}
 	}
-	selectedRow := a.selectedWsIndex / columns
-	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
+	startRow, endRow := calculateScrollWindow(len(rows), window.selectedRow, displayRows)
 	return rows[startRow:endRow]
 }
 
@@ -1059,7 +1062,7 @@ func (a *App) viewWorkspaces() string {
 
 	columns := max(1, a.columns)
 	rows := a.buildWorkspaceCardsRows(columns)
-	visibleRows := a.calculateVisibleWorkspaceRows(rows, len(headerLines), columns)
+	visibleRows := visibleCardRows(rows, cardWindow{height: a.height - len(headerLines) - 2, selectedRow: a.selectedWsIndex / columns})
 
 	bodyLines := append(headerLines, visibleRows...)
 	bodyLines = append(bodyLines, "")
@@ -1302,21 +1305,6 @@ func (a *App) buildRepoCardsRows(repos []model.RepoStatus, columns int) []string
 	return rows
 }
 
-func (a *App) calculateVisibleRepoRows(rows []string, headerCount, columns int) []string {
-	if len(rows) == 0 {
-		return []string{}
-	}
-	rowHeight := max(1, lipgloss.Height(rows[0]))
-	availableHeight := a.height - headerCount - 2
-	displayRows := max(0, availableHeight/rowHeight)
-	if displayRows == 0 {
-		return []string{}
-	}
-	selectedRow := a.selectedIndex / columns
-	startRow, endRow := calculateScrollWindow(len(rows), selectedRow, displayRows)
-	return rows[startRow:endRow]
-}
-
 func (a *App) viewHome() string {
 	columns := max(1, a.columns)
 	help := a.buildHomeHelpText()
@@ -1333,7 +1321,7 @@ func (a *App) viewHome() string {
 	}
 
 	rows := a.buildRepoCardsRows(repos, columns)
-	visibleRows := a.calculateVisibleRepoRows(rows, len(headerLines), columns)
+	visibleRows := visibleCardRows(rows, cardWindow{height: a.height - len(headerLines) - 2, selectedRow: a.selectedIndex / columns})
 	bodyLines := append(headerLines, visibleRows...)
 	return composeWithFooter(a.height, bodyLines, help)
 }
