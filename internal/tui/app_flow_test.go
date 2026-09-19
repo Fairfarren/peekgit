@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Fairfarren/peekgit/internal/config"
+	"github.com/Fairfarren/peekgit/internal/gitcli"
 	"github.com/Fairfarren/peekgit/internal/model"
 	ghprovider "github.com/Fairfarren/peekgit/internal/provider/github"
 	"github.com/Fairfarren/peekgit/internal/workspace"
@@ -15,6 +16,7 @@ import (
 
 func newTestApp() *App {
 	a := New(config.Config{Global: config.GlobalConfig{Workspaces: map[string][]string{"default": {"/tmp"}}}, IntervalSec: 300, Concurrency: 1, NoGitHub: true})
+	a.git = gitcli.NewWithExecutor(mockGitExecForTest{})
 	a.width = 120
 	a.height = 40
 	a.repos = []model.RepoStatus{

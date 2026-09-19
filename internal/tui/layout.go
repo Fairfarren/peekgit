@@ -1,16 +1,16 @@
 package tui
 
 func getResponsiveCardMinWidth(termWidth int) int {
-	switch {
-	case termWidth >= 200:
+	if termWidth >= 200 {
 		return 50
-	case termWidth >= 120:
-		return 44
-	case termWidth >= 80:
-		return 35
-	default:
-		return 25
 	}
+	if termWidth >= 120 {
+		return 44
+	}
+	if termWidth >= 80 {
+		return 35
+	}
+	return 25
 }
 
 func computeColumns(availableWidth int, cardMinWidth int, gap int) int {
@@ -22,36 +22,21 @@ func computeColumns(availableWidth int, cardMinWidth int, gap int) int {
 		return 1
 	}
 	cols := (availableWidth + gap) / denom
-	if cols < 1 {
-		return 1
-	}
-	return cols
+	return max(1, cols)
 }
 
 func computeCardWidth(availableWidth int, columns int, gap int) int {
-	if columns <= 1 {
-		if availableWidth < 1 {
-			return 1
-		}
-		return availableWidth
-	}
-	w := (availableWidth - gap*(columns-1)) / columns
-	if w < 1 {
-		return 1
-	}
-	return w
+	columns = max(1, columns)
+	return max(1, (availableWidth-gap*(columns-1))/columns)
+}
+
+func clamp(val, lower, upper int) int {
+	return max(lower, min(val, upper))
 }
 
 func moveIndex(current int, total int, columns int, key string) int {
-	if total <= 0 {
-		return 0
-	}
-	if current < 0 {
-		current = 0
-	}
-	if current >= total {
-		current = total - 1
-	}
+	total = max(1, total)
+	current = clamp(current, 0, total-1)
 
 	var next int
 	switch key {
@@ -67,11 +52,5 @@ func moveIndex(current int, total int, columns int, key string) int {
 		return current
 	}
 
-	if next < 0 {
-		return 0
-	}
-	if next >= total {
-		return total - 1
-	}
-	return next
+	return clamp(next, 0, total-1)
 }

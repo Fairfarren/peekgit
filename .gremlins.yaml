@@ -1,0 +1,7 @@
+unleash:
+  output: "gremlins-report.json"
+  timeout-coefficient: 10
+  workers: 4
+  threshold:
+    efficacy: 100
+    mutant-coverage: 100

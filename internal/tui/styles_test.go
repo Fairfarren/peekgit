@@ -307,3 +307,20 @@ func TestViewDiffWithFileTree(t *testing.T) {
 		t.Fatalf("expected 'Files' panel in view")
 	}
 }
+
+func TestRenderSyncColoredAllStates(t *testing.T) {
+	states := []model.SyncState{
+		model.SyncSynced,
+		model.SyncAhead,
+		model.SyncBehind,
+		model.SyncDiverged,
+		model.SyncUnknown,
+		model.SyncState(999),
+	}
+	for _, s := range states {
+		out := renderSyncColored(s, 1, 1)
+		if out == "" {
+			t.Fatalf("expected non-empty rendered string for state %v", s)
+		}
+	}
+}

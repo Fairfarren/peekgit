@@ -1,10 +1,18 @@
 package workspace
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
+)
+
+var (
+	absolutePath  = filepath.Abs
+	statPath      = os.Stat
+	readDirectory = os.ReadDir
+	readFile      = os.ReadFile
 )
 
 type RepoDir struct {
@@ -17,10 +25,8 @@ func ScanRepos(configuredPaths []string) ([]RepoDir, error) {
 }
 
 func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
-	if depth <= 0 {
-		depth = 0
-	}
-	absRoot, err := filepath.Abs(root)
+	depth = max(depth, 0)
+	absRoot, err := absolutePath(root)
 	if err != nil {
 		return nil, err
 	}
@@ -28,55 +34,60 @@ func ScanReposWithDepth(root string, depth int) ([]RepoDir, error) {
 	repos := make([]RepoDir, 0)
 	seen := make(map[string]struct{})
 
-	var walk func(path string, d int)
-	walk = func(path string, d int) {
-		ok, err := IsGitRepo(path)
-		if err == nil && ok {
-			if _, exists := seen[path]; !exists {
-				seen[path] = struct{}{}
-				repos = append(repos, RepoDir{Name: filepath.Base(path), Path: path})
-			}
-		}
+	walkDirectory(absRoot, depth, 0, seen, &repos)
+	slices.SortFunc(repos, func(a, b RepoDir) int { return cmp.Compare(a.Path, b.Path) })
+	return repos, nil
+}
 
-		if d >= depth {
-			return
-		}
-
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			if entry.Name() == ".git" {
-				continue
-			}
-			walk(filepath.Join(path, entry.Name()), d+1)
+func addRepoIfFound(path string, seen map[string]struct{}, repos *[]RepoDir) {
+	ok, err := IsGitRepo(path)
+	if err == nil && ok {
+		if _, exists := seen[path]; !exists {
+			seen[path] = struct{}{}
+			*repos = append(*repos, RepoDir{Name: filepath.Base(path), Path: path})
 		}
 	}
+}
 
-	walk(absRoot, 0)
-	sort.Slice(repos, func(i, j int) bool { return repos[i].Path < repos[j].Path })
-	return repos, nil
+func walkDirectory(path string, depth, d int, seen map[string]struct{}, repos *[]RepoDir) {
+	addRepoIfFound(path, seen, repos)
+
+	if d >= depth {
+		return
+	}
+
+	entries, err := readDirectory(path)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != ".git" {
+			walkDirectory(filepath.Join(path, entry.Name()), depth, d+1, seen, repos)
+		}
+	}
+}
+
+func expandIfWildcard(p string) ([]RepoDir, bool) {
+	if strings.HasSuffix(p, "/*") || strings.HasSuffix(p, "\\*") {
+		parentPath := p[:len(p)-2]
+		expanded, err := expandWildcardPath(parentPath)
+		if err == nil {
+			return expanded, true
+		}
+		return nil, true
+	}
+	return nil, false
 }
 
 func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 	repos := make([]RepoDir, 0, len(paths))
 	for _, p := range paths {
-		// Handle wildcard path ending with /*
-		if strings.HasSuffix(p, "/*") || strings.HasSuffix(p, "\\*") {
-			parentPath := p[:len(p)-2]
-			expanded, err := expandWildcardPath(parentPath)
-			if err != nil {
-				continue
-			}
+		if expanded, handled := expandIfWildcard(p); handled {
 			repos = append(repos, expanded...)
 			continue
 		}
 
-		absPath, err := filepath.Abs(p)
+		absPath, err := absolutePath(p)
 		if err != nil {
 			continue
 		}
@@ -92,7 +103,7 @@ func scanConfiguredPaths(paths []string) ([]RepoDir, error) {
 
 func IsGitRepo(path string) (bool, error) {
 	gitPath := filepath.Join(path, ".git")
-	info, err := os.Stat(gitPath)
+	info, err := statPath(gitPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -104,7 +115,11 @@ func IsGitRepo(path string) (bool, error) {
 		return true, nil
 	}
 
-	b, err := os.ReadFile(gitPath)
+	return isGitWorktreeFile(path, gitPath)
+}
+
+func isGitWorktreeFile(repoPath, gitFilePath string) (bool, error) {
+	b, err := readFile(gitFilePath)
 	if err != nil {
 		return false, err
 	}
@@ -117,9 +132,9 @@ func IsGitRepo(path string) (bool, error) {
 		return false, nil
 	}
 	if !filepath.IsAbs(gdir) {
-		gdir = filepath.Join(path, gdir)
+		gdir = filepath.Join(repoPath, gdir)
 	}
-	st, err := os.Stat(gdir)
+	st, err := statPath(gdir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -129,23 +144,24 @@ func IsGitRepo(path string) (bool, error) {
 	return st.IsDir(), nil
 }
 
+func normalizeParentPath(parentPath string) string {
+	if parentPath == "" {
+		return string(filepath.Separator)
+	}
+	if len(parentPath) == 2 && parentPath[1] == ':' {
+		return parentPath + string(filepath.Separator)
+	}
+	return parentPath
+}
+
 // expandWildcardPath scans the parent directory and returns all git repo subdirectories
 func expandWildcardPath(parentPath string) ([]RepoDir, error) {
-	// Handle edge case where wildcard was applied to filesystem root
-	// e.g., "/*" becomes "" or "C:\\*" becomes "C:"
-	if parentPath == "" {
-		parentPath = string(filepath.Separator)
-	} else if len(parentPath) == 2 && parentPath[1] == ':' {
-		// Windows drive letter without separator (e.g., "C:")
-		parentPath = parentPath + string(filepath.Separator)
-	}
-
-	absParent, err := filepath.Abs(parentPath)
+	absParent, err := absolutePath(normalizeParentPath(parentPath))
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(absParent)
+	entries, err := readDirectory(absParent)
 	if err != nil {
 		return nil, err
 	}

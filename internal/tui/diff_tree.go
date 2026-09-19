@@ -1,8 +1,9 @@
 package tui
 
 import (
+	"cmp"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -82,33 +83,7 @@ func parseDiffFiles(raw string) []FileDiff {
 		// Accumulate content for current file
 		if currentFile != nil {
 			contentLines = append(contentLines, line)
-
-			// Detect file status
-			if strings.HasPrefix(line, "new file mode ") {
-				currentFile.IsNew = true
-			}
-			if strings.HasPrefix(line, "deleted file mode ") {
-				currentFile.IsDelete = true
-			}
-			if strings.HasPrefix(line, "Binary files ") {
-				currentFile.IsBinary = true
-			}
-
-			// Count additions and deletions
-			if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
-				currentFile.AddLines++
-			}
-			if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
-				currentFile.DelLines++
-			}
-
-			// Handle rename detection
-			if strings.HasPrefix(line, "rename from ") {
-				currentFile.OldPath = strings.TrimPrefix(line, "rename from ")
-			}
-			if strings.HasPrefix(line, "rename to ") {
-				currentFile.NewPath = strings.TrimPrefix(line, "rename to ")
-			}
+			updateDiffLineMetrics(currentFile, line)
 		}
 	}
 
@@ -119,6 +94,35 @@ func parseDiffFiles(raw string) []FileDiff {
 	}
 
 	return files
+}
+
+func updateDiffLineMetrics(currentFile *FileDiff, line string) {
+	updateStatusMetrics(currentFile, line)
+	updateLineMetrics(currentFile, line)
+}
+
+func updateStatusMetrics(currentFile *FileDiff, line string) {
+	switch {
+	case strings.HasPrefix(line, "new file mode "):
+		currentFile.IsNew = true
+	case strings.HasPrefix(line, "deleted file mode "):
+		currentFile.IsDelete = true
+	case strings.HasPrefix(line, "Binary files "):
+		currentFile.IsBinary = true
+	case strings.HasPrefix(line, "rename from "):
+		currentFile.OldPath = strings.TrimPrefix(line, "rename from ")
+	case strings.HasPrefix(line, "rename to "):
+		currentFile.NewPath = strings.TrimPrefix(line, "rename to ")
+	}
+}
+
+func updateLineMetrics(currentFile *FileDiff, line string) {
+	switch {
+	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+		currentFile.AddLines++
+	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+		currentFile.DelLines++
+	}
 }
 
 // parseDiffHeader extracts file path from "diff --git a/path b/path"
@@ -228,12 +232,14 @@ func sortTree(node *DiffNode) {
 		return
 	}
 
-	sort.Slice(node.Children, func(i, j int) bool {
-		// Directories come first
-		if node.Children[i].IsDir != node.Children[j].IsDir {
-			return node.Children[i].IsDir
+	slices.SortFunc(node.Children, func(a, b *DiffNode) int {
+		if a.IsDir != b.IsDir {
+			if a.IsDir {
+				return -1
+			}
+			return 1
 		}
-		return node.Children[i].Name < node.Children[j].Name
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	for _, child := range node.Children {

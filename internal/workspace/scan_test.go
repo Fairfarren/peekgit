@@ -76,6 +76,13 @@ func TestScanReposWildcard(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(repo1, ".git"), 0o755)
 	_ = os.MkdirAll(filepath.Join(repo2, ".git"), 0o755)
 	_ = os.MkdirAll(nonRepo, 0o755)
+	_ = os.WriteFile(filepath.Join(root, "regular-file.txt"), []byte("hello"), 0o644)
+
+	// Test non-existent path in expandWildcardPath
+	_, err := expandWildcardPath(filepath.Join(root, "non-existent-sub"))
+	if err == nil {
+		t.Fatal("expected error for non-existent path in expandWildcardPath, got nil")
+	}
 
 	// Test wildcard path /*
 	repos, err := ScanRepos([]string{root + "/*"})
@@ -164,5 +171,77 @@ func TestScanReposWithDepthIncludesRootRepo(t *testing.T) {
 	}
 	if repos[0].Path != root {
 		t.Fatalf("repo path = %q, want %q", repos[0].Path, root)
+	}
+}
+
+func TestIsGitWorktreeFileEdgeCases(t *testing.T) {
+	root := t.TempDir()
+
+	// Case 1: not starting with gitdir:
+	f1 := filepath.Join(root, "notgitdir")
+	_ = os.WriteFile(f1, []byte("something else"), 0o644)
+	ok, err := isGitWorktreeFile(root, f1)
+	if err != nil || ok {
+		t.Fatalf("expected false, nil, got %v, %v", ok, err)
+	}
+
+	// Case 2: empty gitdir
+	f2 := filepath.Join(root, "emptygitdir")
+	_ = os.WriteFile(f2, []byte("gitdir:\n"), 0o644)
+	ok, err = isGitWorktreeFile(root, f2)
+	if err != nil || ok {
+		t.Fatalf("expected false, nil, got %v, %v", ok, err)
+	}
+
+	// Case 3: absolute gitdir path pointing to existing dir
+	absTarget := filepath.Join(root, "abs_target")
+	_ = os.MkdirAll(absTarget, 0o755)
+	f3 := filepath.Join(root, "absfile")
+	_ = os.WriteFile(f3, []byte("gitdir: "+absTarget), 0o644)
+	ok, err = isGitWorktreeFile(root, f3)
+	if err != nil || !ok {
+		t.Fatalf("expected true, nil, got %v, %v", ok, err)
+	}
+
+	// Case 4: gitdir pointing to non-existent target
+	f4 := filepath.Join(root, "nonexist")
+	_ = os.WriteFile(f4, []byte("gitdir: /does/not/exist"), 0o644)
+	ok, err = isGitWorktreeFile(root, f4)
+	if err != nil || ok {
+		t.Fatalf("expected false, nil, got %v, %v", ok, err)
+	}
+}
+
+func TestNormalizeParentPath(t *testing.T) {
+	if got := normalizeParentPath(""); got != string(filepath.Separator) {
+		t.Errorf("got %q, want %q", got, string(filepath.Separator))
+	}
+	if got := normalizeParentPath("C:"); got != "C:"+string(filepath.Separator) {
+		t.Errorf("got %q, want %q", got, "C:"+string(filepath.Separator))
+	}
+	if got := normalizeParentPath("some/path"); got != "some/path" {
+		t.Errorf("got %q, want %q", got, "some/path")
+	}
+}
+
+func TestScanReposWithDepthNegativeDepth(t *testing.T) {
+	root := t.TempDir()
+	repos, err := ScanReposWithDepth(root, -5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repos, got %d", len(repos))
+	}
+
+	// Test with a real repo and depth 0
+	_ = os.MkdirAll(filepath.Join(root, ".git"), 0o755)
+	repos0, err := ScanReposWithDepth(root, 0)
+	if err != nil || len(repos0) != 1 {
+		t.Fatalf("expected 1 repo with depth 0, got %d, err %v", len(repos0), err)
+	}
+	reposNeg, err := ScanReposWithDepth(root, -1)
+	if err != nil || len(reposNeg) != 1 {
+		t.Fatalf("expected 1 repo with depth -1, got %d, err %v", len(reposNeg), err)
 	}
 }

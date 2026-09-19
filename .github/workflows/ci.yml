@@ -2,21 +2,69 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
 
 jobs:
   test:
+    name: Unit Test & Vet
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
-
-      - name: Setup Go
+      - name: 配置 Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.x'
+          go-version: '1.26.4'
+      - name: 格式、全量测试、静态检查与构建
+        run: make check
 
-      - name: Go test
-        run: go test ./...
-
-      - name: Go vet
-        run: go vet ./...
+  quality-gate:
+    name: CRAP Analysis & Mutation Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: test
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+      - name: 缓存固定版本质量工具
+        uses: actions/cache@v4
+        with:
+          path: .quality-bin
+          key: quality-tools-${{ runner.os }}-${{ runner.arch }}-go1.26.4-${{ hashFiles('Makefile') }}
+      - name: 验证质量门禁能够拦截不合格样本
+        run: make gate-test
+      - name: 精确语句覆盖率与 CRAP 检查
+        run: make crap
+      - name: 全量变异测试，双阈值 100%
+        run: make mutate
+      - name: 保存质量报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: |
+            coverage.out
+            gremlins-report.json
+          if-no-files-found: warn
+      - name: 汇总原始质量结果
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### 质量门禁结果'
+            if [ -f coverage.out ]; then
+              awk -f scripts/check-coverage.awk coverage.out 2>&1 || true
+            fi
+            if [ -f gremlins-report.json ]; then
+              jq '{test_efficacy, mutations_coverage, mutants_killed, mutants_lived, mutants_not_covered}' gremlins-report.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

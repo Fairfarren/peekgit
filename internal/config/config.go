@@ -31,7 +31,9 @@ type Config struct {
 	Global         GlobalConfig
 }
 
-// LoadGlobalConfig reads ~/.config/peekgit/config.json
+var readConfigFile = os.ReadFile
+
+// LoadGlobalConfig 读取用户目录中的全局配置。
 func LoadGlobalConfig() (GlobalConfig, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -39,7 +41,7 @@ func LoadGlobalConfig() (GlobalConfig, error) {
 	}
 	configPath := filepath.Join(home, ".config", "peekgit", "config.json")
 
-	data, err := os.ReadFile(configPath)
+	data, err := readConfigFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return GlobalConfig{Workspaces: make(WorkspaceMap)}, nil
@@ -52,19 +54,20 @@ func LoadGlobalConfig() (GlobalConfig, error) {
 		return GlobalConfig{}, err
 	}
 
-	// Expand ~ in workspace paths
+	expandTilde(&cfg, home)
+	return cfg, nil
+}
+
+func expandTilde(cfg *GlobalConfig, home string) {
 	for wsName, paths := range cfg.Workspaces {
 		for i, p := range paths {
-			switch {
-			case p == "~":
+			if p == "~" {
 				cfg.Workspaces[wsName][i] = home
-			case strings.HasPrefix(p, "~/"), strings.HasPrefix(p, "~\\"):
+			} else if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
 				cfg.Workspaces[wsName][i] = filepath.Join(home, p[2:])
 			}
 		}
 	}
-
-	return cfg, nil
 }
 
 func Parse(args []string) (Config, error) {
@@ -87,12 +90,7 @@ func Parse(args []string) (Config, error) {
 		return Config{}, err
 	}
 
-	if *interval <= 0 {
-		*interval = DefaultIntervalSec
-	}
-	if *concurrency <= 0 {
-		*concurrency = DefaultConcurrency
-	}
+	validateLimits(interval, concurrency)
 
 	workspaceMode := false
 	fs.Visit(func(f *flag.Flag) {
@@ -102,38 +100,11 @@ func Parse(args []string) (Config, error) {
 	})
 
 	if *showVersion || *vShort {
-		return Config{
-			ShowVersion: true,
-		}, nil
+		return Config{ShowVersion: true}, nil
 	}
 
 	if workspaceMode {
-		depth := *workspaceDepth
-		if depth <= 0 {
-			depth = 0
-		}
-		wd, err := os.Getwd()
-		if err != nil {
-			return Config{}, err
-		}
-		root, err := filepath.Abs(wd)
-		if err != nil {
-			return Config{}, err
-		}
-		global := GlobalConfig{
-			Workspaces: WorkspaceMap{
-				root: {root},
-			},
-		}
-		return Config{
-			IntervalSec:    *interval,
-			Concurrency:    *concurrency,
-			NoGitHub:       *noGitHub,
-			WorkspaceMode:  true,
-			WorkspaceDepth: depth,
-			WorkspaceRoot:  root,
-			Global:         global,
-		}, nil
+		return buildWorkspaceConfig(*interval, *concurrency, *noGitHub, *workspaceDepth)
 	}
 
 	globalCfg, err := LoadGlobalConfig()
@@ -149,6 +120,40 @@ func Parse(args []string) (Config, error) {
 		WorkspaceDepth: 0,
 		WorkspaceRoot:  "",
 		Global:         globalCfg,
+	}, nil
+}
+
+func validateLimits(interval, concurrency *int) {
+	if *interval <= 0 {
+		*interval = DefaultIntervalSec
+	}
+	if *concurrency <= 0 {
+		*concurrency = DefaultConcurrency
+	}
+}
+
+var getwd = os.Getwd
+
+func buildWorkspaceConfig(interval, concurrency int, noGitHub bool, workspaceDepth int) (Config, error) {
+	depth := max(workspaceDepth, 0)
+	wd, err := getwd()
+	if err != nil {
+		return Config{}, err
+	}
+	root := filepath.Clean(wd)
+	global := GlobalConfig{
+		Workspaces: WorkspaceMap{
+			root: {root},
+		},
+	}
+	return Config{
+		IntervalSec:    interval,
+		Concurrency:    concurrency,
+		NoGitHub:       noGitHub,
+		WorkspaceMode:  true,
+		WorkspaceDepth: depth,
+		WorkspaceRoot:  root,
+		Global:         global,
 	}, nil
 }
 
